@@ -64,7 +64,7 @@ const startFlaskServer = (): void => {
       shell: false,
     });
   } else {
-    flaskProcess = spawn("python", ["api/backend.py"], {
+    flaskProcess = spawn("uv", ["run", "python", "api/backend.py"], {
       env: { ...process.env, FLASK_DEBUG: "1" },
       shell: true,
     });
