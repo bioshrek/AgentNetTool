@@ -263,6 +263,7 @@ const Page = () => {
     const [playing, setPlaying] = useState(true);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [duration, setDuration] = useState(0);
 
     const [valMin, setValMin] = useState<number>(1);
@@ -669,6 +670,7 @@ const Page = () => {
                 buttonLabel: "Select Destination"
             });
             if (path) {
+                setIsExporting(true);
                 const response = await fetch(`http://localhost:5328/api/recording/${recordingName}/export`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -685,6 +687,8 @@ const Page = () => {
         } catch (error) {
             console.error(error);
             showError("Error exporting recording.");
+        } finally {
+            setIsExporting(false);
         }
     };
 
@@ -1330,6 +1334,7 @@ const Page = () => {
                         size="sm"
                         onClick={handleExportRecording}
                         sx={{ width: "100px" }}
+                        loading={isExporting}
                     >
                         Export
                     </Button>
