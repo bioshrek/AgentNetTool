@@ -148,3 +148,32 @@ class RecordingController:
             self.recording_service.user_recordings, None
         )
         return ErrorHandler.handle_service_response((status, result))
+
+    @handle_api_errors
+    def export_recording(self, recording_name: str) -> Tuple[Dict[str, Any], int]:
+        """Export a single recording."""
+        if not request.json:
+            return ErrorHandler.create_error_response("No data provided", 400)
+            
+        data = request.json
+        output_path = data.get("output_path")
+        if not output_path:
+            return ErrorHandler.create_error_response(400, "Output path is required")
+            
+        self.recording_service.export_recording(recording_name, output_path)
+        return ErrorHandler.create_success_response({"message": "Export started successfully"})
+
+    @handle_api_errors
+    def export_all_recordings(self) -> Tuple[Dict[str, Any], int]:
+        """Export all recordings."""
+        if not request.json:
+            return ErrorHandler.create_error_response("No data provided", 400)
+
+        data = request.json
+        output_path = data.get("output_path")
+        if not output_path:
+            return ErrorHandler.create_error_response(400, "Output path is required")
+            
+        self.recording_service.export_all_recordings(output_path)
+        return ErrorHandler.create_success_response({"message": "Export started successfully"})
+

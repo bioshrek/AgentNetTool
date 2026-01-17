@@ -47,6 +47,7 @@ import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import CreateIcon from "@mui/icons-material/Create";
 import DeleteIcon from "@mui/icons-material/Delete";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import Check from "@mui/icons-material/Check";
 import { default as _ReactPlayer } from "react-player/lazy";
 import { ReactPlayerProps } from "react-player/types/lib";
@@ -659,6 +660,32 @@ const Page = () => {
             setOperationHistory([...operationHistory, lastUndoOperation]);
         }
         setIsDirty(true);
+    };
+
+    const handleExportRecording = async () => {
+        try {
+            const path = await window.electron.openDirectoryDialog({
+                title: "Select Destination Folder",
+                buttonLabel: "Select Destination"
+            });
+            if (path) {
+                const response = await fetch(`http://localhost:5328/api/recording/${recordingName}/export`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ output_path: path })
+                });
+                
+                if (response.ok) {
+                    showSuccess("Export succeed!");
+                } else {
+                    const result = await response.json();
+                    showError(result.error || "Export failed.");
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            showError("Error exporting recording.");
+        }
     };
 
     const handleDeleteRecording = async () => {
@@ -1297,6 +1324,15 @@ const Page = () => {
                             </Card>
                         </Popper>
                     </Box>
+                    <Button
+                        color="neutral"
+                        startDecorator={<FileDownloadIcon />}
+                        size="sm"
+                        onClick={handleExportRecording}
+                        sx={{ width: "100px" }}
+                    >
+                        Export
+                    </Button>
                     <Button
                         color="danger"
                         startDecorator={<DeleteIcon />}

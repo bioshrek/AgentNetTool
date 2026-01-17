@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.removeListener(channel, func);
     },
   },
+  openDirectoryDialog: (options?: any) => ipcRenderer.invoke("dialog:openDirectory", options),
   updateTrayIcon: (iconPath: string) =>
     ipcRenderer.send("update-tray-icon", iconPath),
   updateTrayTitle: (title: string) =>

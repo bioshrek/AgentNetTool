@@ -1,0 +1,11 @@
+{
+    "task_id": 472,
+    "instruction": "Can you make a new folder for me on the bookmarks bar in my internet browser? Let's call it 'Favorites.'",
+    "traj": [
+        {
+            "index": 0,
+            "code": "pyautogui.click(689, 554)",
+            "screenshot": "task_472/step_0.png"
+        }
+    ]
+}

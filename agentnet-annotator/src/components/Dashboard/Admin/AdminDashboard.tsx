@@ -1,5 +1,6 @@
 import { Link as RouterLink } from "react-router-dom";
-import { Box, Breadcrumbs, Link } from "@mui/joy";
+import { Box, Breadcrumbs, Link, Button } from "@mui/joy";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -135,8 +136,39 @@ const AdminDashboard = () => {
                     </Breadcrumbs>
                 </Box>
                 <div className="px-4 mt-4">
-                    <h3 className="text-3xl font-bold leading-6">
-                        Hi! {username}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 6, mb: 2 }}>
+                        <h3 className="text-3xl font-bold leading-6">
+                            Hi! {username}
+                        </h3>
+                        <Button
+                            variant="solid"
+                            color="primary"
+                            startDecorator={<CloudUploadIcon />}
+                            onClick={async () => {
+                                try {
+                                    const path = await window.electron.openDirectoryDialog();
+                                    if (path) {
+                                        const response = await fetch(`http://localhost:5328/api/recording/export_all`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ output_path: path })
+                                        });
+                                        if (response.ok) {
+                                            alert("Export started!");
+                                        } else {
+                                            const result = await response.json();
+                                            showError(result.error || "Export failed to start.");
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error(error);
+                                    showError("Error during export.");
+                                }
+                            }}
+                        >
+                            Export All
+                        </Button>
+                    </Box>
                         <dl className="mt-5 grid grid-cols-4 gap-4 sm:grid-cols-4 lg:grid-cols-4">
                             {stats.map((item) => (
                                 <div
@@ -162,7 +194,6 @@ const AdminDashboard = () => {
                                 </div>
                             ))}
                         </dl>
-                    </h3>
                 </div>
                 <AdminChart data={userDataTimeline?.data} />
                 <AdminVerifyList />

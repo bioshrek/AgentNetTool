@@ -4,7 +4,7 @@ import DoneIcon from "@mui/icons-material/Done";
 import ClearIcon from "@mui/icons-material/Clear";
 import RateReviewIcon from "@mui/icons-material/RateReview";
 import { Link as RouterLink } from "react-router-dom";
-import { Box, Breadcrumbs, Link, Tab, Tabs, TabList, TabPanel } from "@mui/joy";
+import { Box, Breadcrumbs, Link, Tab, Tabs, TabList, TabPanel, Button } from "@mui/joy";
 import { tabClasses } from "@mui/joy/Tab";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
@@ -13,6 +13,7 @@ import "react-edit-text/dist/index.css";
 import RegVerifyList from "./RegVerifyList";
 import RegChart from "./RegChart";
 import RegAnnotateList from "./RegAnnotateList";
+import { SERVER_URL } from "../../../public/constant";
 
 const RegDashboard = () => {
     const { username, userData, fetchUserData, userDataTimeline } = useMain();
@@ -94,9 +95,38 @@ const RegDashboard = () => {
                     </Breadcrumbs>
                 </Box>
                 <div className="px-4 mt-4">
-                    <h3 className="text-3xl font-bold leading-6 mt-6 mb-2">
-                        Hi! {username}
-                    </h3>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 6, mb: 2 }}>
+                        <h3 className="text-3xl font-bold leading-6">
+                            Hi! {username}
+                        </h3>
+                        <Button
+                            variant="solid"
+                            color="primary"
+                            startDecorator={<CloudUploadIcon />}
+                            onClick={async () => {
+                                try {
+                                    const path = await window.electron.openDirectoryDialog();
+                                    if (path) {
+                                        const response = await fetch(`http://localhost:5328/api/recording/export_all`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ output_path: path })
+                                        });
+                                        if (response.ok) {
+                                            alert("Export started!");
+                                        } else {
+                                            alert("Export failed to start.");
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error(error);
+                                    alert("Error during export.");
+                                }
+                            }}
+                        >
+                            Export All
+                        </Button>
+                    </Box>
                     <dl className="mx-auto grid grid-cols-1 gap-px bg-gray-900/5 sm:grid-cols-2 lg:grid-cols-4 dark:bg-gray-800 dark:bg-opacity-10">
                         {stats.map((stat) => (
                             <div

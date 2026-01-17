@@ -23,6 +23,22 @@ const log = require("electron-log");
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
+ipcMain.handle("dialog:openDirectory", async (event, options = {}) => {
+  if (!mainWindow) return undefined;
+
+  // Use mainWindow as parent to ensure dialog stays in front (modal)
+  // This resolves the z-order/visibility issue
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+    ...options
+  });
+  
+  if (result.canceled) {
+    return undefined;
+  }
+  return result.filePaths[0];
+});
+
 let tray: Tray | null = null;
 if (require("electron-squirrel-startup")) {
   app.quit();
