@@ -279,13 +279,20 @@ class Action:
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        # Try using vp09 (VP9) which is supported by Electron and available in opencv-python on Linux
+        fourcc = cv2.VideoWriter_fourcc(*"vp09")
 
         os.makedirs(os.path.join(recording_path, "video_clips"), exist_ok=True)
         output_path = os.path.join(
             recording_path, "video_clips", f"{video_clip_name}.mp4"
         )
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if not out.isOpened():
+            logger.warning(
+                f"VideoWriter failed to open with vp09 for {output_path}. Falling back to mp4v."
+            )
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         video_attrs.update(
             {
                 "fps": fps,
