@@ -163,6 +163,13 @@ class PyAutoGUIAction(BaseModel):
     target: Optional[GUIElement] = Field(None, description="The target element")
     args: Union[Dict[str, Any], List[Any]] = Field(default_factory=dict, description="Arguments for the action")
 
+    @field_validator("action_type", mode="before")
+    @classmethod
+    def validate_action_type(cls, v):
+        if isinstance(v, str):
+            return GUIActionType(v)
+        return v
+
     @model_validator(mode="after")
     def initialize_args(self):
         if len(self.args) != 0:

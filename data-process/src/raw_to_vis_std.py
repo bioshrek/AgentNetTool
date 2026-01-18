@@ -10,7 +10,7 @@ from tqdm import tqdm
 from PIL import Image
 
 from src.raw_to_standardized import convert_examples
-from src.schema.action import GUIAction, ImageObservation, TextObservation
+from src.schema.action import GUIAction, GUIActionType, PyAutoGUIAction, ImageObservation, TextObservation
 from src.schema.trajectory import Trajectory
 from src.extract_raw import process_single_directory
 
@@ -68,6 +68,14 @@ def process_trajectory(traj_data, output_path):
                             # Generate code with absolute coordinates
                             codes = []
                             for action in item.guiactions:
+                                # Skip non-PyAutoGUI actions (e.g., ComputerAction)
+                                if not isinstance(action, PyAutoGUIAction):
+                                    continue
+                                
+                                # Ensure action_type is a GUIActionType enum, not a string
+                                if isinstance(action.action_type, str):
+                                    action.action_type = GUIActionType(action.action_type)
+                                
                                 # Convert normalized coordinates to absolute
                                 if 'x' in action.args and 'y' in action.args:
                                     if isinstance(action.args['x'], float) and width > 0:
@@ -87,12 +95,14 @@ def process_trajectory(traj_data, output_path):
                             
                             code_str = "\n".join(codes)
 
-                            new_traj.append({
-                                "index": step_idx,
-                                "code": code_str,
-                                "screenshot": img_filename
-                            })
-                            step_idx += 1
+                            # Only add step if there's actual code (skip empty actions like termination)
+                            if code_str.strip():
+                                new_traj.append({
+                                    "index": step_idx,
+                                    "code": code_str,
+                                    "screenshot": img_filename
+                                })
+                                step_idx += 1
                         except Exception as e:
                             print(f"Error saving image or processing action in {example_id}: {e}")
                             import traceback

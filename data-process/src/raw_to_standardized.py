@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from src.schema.action import (
     GUIAction,
+    GUIActionType,
     PyAutoGUIAction,
     ComputerAction,
     triple_click_func,
@@ -257,7 +258,7 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             x = max(0, min(x, img_size[0]))
             y = max(0, min(y, img_size[1]))
             actionlist = [
-                PyAutoGUIAction(action_type=action_type, target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
+                PyAutoGUIAction(action_type=GUIActionType(action_type), target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
             ]
         except Exception:
             return None
@@ -297,9 +298,9 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             contents.append(["text", current])
         for content in contents:
             if content[0] == "keys":
-                actions.append(PyAutoGUIAction(action_type="press", target=None, args={"keys": [content[1]]}))
+                actions.append(PyAutoGUIAction(action_type=GUIActionType.PRESS, target=None, args={"keys": [content[1]]}))
             else:
-                actions.append(PyAutoGUIAction(action_type="write", target=None, args={"message": content[1]}))
+                actions.append(PyAutoGUIAction(action_type=GUIActionType.WRITE, target=None, args={"message": content[1]}))
         actionlist = actions
     elif action_type == "press":
         action = action.replace("\n", "")
@@ -411,9 +412,9 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
 
         if keys and keys[0] == "shift" and "cmd" not in keys and "ctrl" not in keys:
             if len(keys) == 1:
-                actionlist = [PyAutoGUIAction(action_type="hotkey", target=None, args={"keys": ["shift"]})]
+                actionlist = [PyAutoGUIAction(action_type=GUIActionType.HOTKEY, target=None, args={"keys": ["shift"]})]
             elif len(keys) == 2 and keys[1] == "enter":
-                actionlist = [PyAutoGUIAction(action_type="hotkey", target=None, args={"keys": ["shift", "enter"]})]
+                actionlist = [PyAutoGUIAction(action_type=GUIActionType.HOTKEY, target=None, args={"keys": ["shift", "enter"]})]
             elif keys[1][0].isalpha() or keys[1][0].isdigit() or keys[1][0] in [
                 "_",
                 "=",
@@ -457,41 +458,41 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             ]:
                 contents = extract_content(keys[1:])
                 if contents == []:
-                    actionlist = [PyAutoGUIAction(action_type="hotkey", target=None, args={"keys": ["shift"]})]
+                    actionlist = [PyAutoGUIAction(action_type=GUIActionType.HOTKEY, target=None, args={"keys": ["shift"]})]
                 else:
                     for content in contents:
                         if content[0] == "text":
                             if len(actionlist) == 0:
                                 actionlist = [
-                                    PyAutoGUIAction(action_type="write", target=None, args={"message": content[1]}),
+                                    PyAutoGUIAction(action_type=GUIActionType.WRITE, target=None, args={"message": content[1]}),
                                 ]
                             else:
                                 actionlist.append(
-                                    PyAutoGUIAction(action_type="write", target=None, args={"message": content[1]})
+                                    PyAutoGUIAction(action_type=GUIActionType.WRITE, target=None, args={"message": content[1]})
                                 )
                         elif content[0] == "keys":
                             if len(actionlist) == 0:
                                 actionlist = [
-                                    PyAutoGUIAction(action_type="press", target=None, args={"keys": [content[1]]}),
+                                    PyAutoGUIAction(action_type=GUIActionType.PRESS, target=None, args={"keys": [content[1]]}),
                                 ]
                             else:
                                 actionlist.append(
-                                    PyAutoGUIAction(action_type="press", target=None, args={"keys": [content[1]]})
+                                    PyAutoGUIAction(action_type=GUIActionType.PRESS, target=None, args={"keys": [content[1]]})
                                 )
         else:
-            actionlist = [PyAutoGUIAction(action_type="hotkey", target=None, args={"keys": keys})]
+            actionlist = [PyAutoGUIAction(action_type=GUIActionType.HOTKEY, target=None, args={"keys": keys})]
     elif action_type == "dragTo":
         from_coor, target_coor = action.split("Drag from ")[1].split(" to ")
         from_x, from_y = map(float, from_coor.split("(")[1].split(")")[0].split(","))
         to_x, to_y = map(float, target_coor.split("(")[1].split(")")[0].split(","))
         actionlist = [
             PyAutoGUIAction(
-                action_type="moveTo",
+                action_type=GUIActionType.MOVE_TO,
                 target=None,
                 args={"x": max(0, min(from_x / img_size[0], 1)), "y": max(0, min(from_y / img_size[1], 1))},
             ),
             PyAutoGUIAction(
-                action_type="dragTo",
+                action_type=GUIActionType.DRAG_TO,
                 target=None,
                 args={
                     "x": max(0, min(to_x / img_size[0], 1)),
@@ -510,15 +511,15 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
                 dy += a["dy"]
             actionlist.append(
                 PyAutoGUIAction(
-                    action_type="moveTo",
+                    action_type=GUIActionType.MOVE_TO,
                     target=None,
                     args={"x": max(0, min(x / img_size[0], 1)), "y": max(0, min(y / img_size[1], 1))},
                 )
             )
             if dx != 0:
-                actionlist.append(PyAutoGUIAction(action_type="hscroll", target=None, args={"clicks": dx}))
+                actionlist.append(PyAutoGUIAction(action_type=GUIActionType.HSCROLL, target=None, args={"clicks": dx}))
             if dy != 0:
-                actionlist.append(PyAutoGUIAction(action_type="scroll", target=None, args={"clicks": dy}))
+                actionlist.append(PyAutoGUIAction(action_type=GUIActionType.SCROLL, target=None, args={"clicks": dy}))
         else:
             scroll_directions = parse_scroll_to_cardinal(action)
             assert not (
@@ -532,7 +533,7 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             ) >= 1:
                 actionlist.append(
                     PyAutoGUIAction(
-                        action_type="scroll",
+                        action_type=GUIActionType.SCROLL,
                         target=None,
                         args={"clicks": scroll_directions["up"] - scroll_directions["down"]},
                     )
@@ -542,7 +543,7 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             ) >= 2:
                 actionlist.append(
                     PyAutoGUIAction(
-                        action_type="hscroll",
+                        action_type=GUIActionType.HSCROLL,
                         target=None,
                         args={"clicks": scroll_directions["right"] - scroll_directions["left"]},
                     )
