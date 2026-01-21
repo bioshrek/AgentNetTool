@@ -15,6 +15,7 @@ import {
 import { spawn, ChildProcess, execSync } from "child_process";
 import axios from "axios";
 import path from "path";
+import fs from "fs";
 import { SERVER_URL } from "./public/constant";
 import { createTray, StartRecording, StopRecording, updateTrayIcon } from "./trayicon";
 
@@ -49,6 +50,7 @@ let mainWindow: BrowserWindow | null = null;
 let flaskProcess: ChildProcess | null = null;
 
 const createWindow = (): void => {
+  log.info("Creating main window...");
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
@@ -63,19 +65,54 @@ const createWindow = (): void => {
   });
 
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+  log.info(`Loading URL: ${MAIN_WINDOW_WEBPACK_ENTRY}`);
 
   // if (process.env.NODE_ENV === "development") {
   //   mainWindow.webContents.openDevTools();
   // }
+  
+  mainWindow.once('ready-to-show', () => {
+    log.info("Main window ready to show");
+    mainWindow?.show();
+  });
 
   mainWindow.on("closed", () => {
+    log.info("Main window closed");
     mainWindow = null;
   });
 };
 
 const startFlaskServer = (): void => {
   if (app.isPackaged) {
-    flaskProcess = spawn(path.join(process.resourcesPath, "backend/backend"), {
+    const backendPath = path.join(process.resourcesPath, "backend/backend");
+    log.info(`Attempting to spawn backend at: ${backendPath}`);
+    
+    try {
+      if (fs.existsSync(backendPath)) {
+        log.info("Backend file exists.");
+        const stats = fs.statSync(backendPath);
+        log.info(`File permissions: ${stats.mode.toString(8)}`);
+      } else {
+        log.error("Backend file DOES NOT exist.");
+        // List resources contents
+        try {
+          const resources = fs.readdirSync(process.resourcesPath);
+          log.info(`Contents of resources: ${resources.join(", ")}`);
+          const backendDir = path.join(process.resourcesPath, "backend");
+          if (fs.existsSync(backendDir)) {
+             const backendContents = fs.readdirSync(backendDir);
+             log.info(`Contents of resources/backend: ${backendContents.join(", ")}`);
+          }
+        } catch (e) {
+          log.error(`Error listing directories: ${e}`);
+        }
+      }
+    } catch (e) {
+      log.error(`Error checking file: ${e}`);
+    }
+
+    // Check if file exists and invoke it
+    flaskProcess = spawn(backendPath, {
       env: { ...process.env },
       shell: false,
     });
@@ -88,14 +125,22 @@ const startFlaskServer = (): void => {
 
   flaskProcess.stdout.on("data", (data) => {
     console.log(`Flask stdout: ${data}`);
+    log.info(`Flask stdout: ${data}`);
   });
 
   flaskProcess.stderr.on("data", (data) => {
     console.error(`Flask stderr: ${data}`);
+    log.error(`Flask stderr: ${data}`);
   });
 
   flaskProcess.on("close", (code) => {
     console.log(`Flask process exited with code ${code}`);
+    log.info(`Flask process exited with code ${code}`);
+  });
+  
+  flaskProcess.on("error", (err) => {
+    console.error(`Flask process spawn error: ${err}`);
+    log.error(`Flask process spawn error: ${err}`);
   });
 };
 

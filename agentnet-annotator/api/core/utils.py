@@ -204,11 +204,11 @@ def ensure_dir_exists(path: Path) -> None:
 
 def get_review_recordings_dir() -> str:
     # TODO: change to align with dev path, but has some problems on MacOS permissions
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        # This is for packaged app
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS") and system() != "Linux":
+        # This is for packaged app (Windows/Mac)
         documents_folder = Path(sys._MEIPASS) / "ReviewRecordings"
     else:
-        # This is for dev
+        # This is for dev or Linux packaged app
         documents_folder = Path.home() / "Documents" / "AgentNetReviewRecordings"
 
     if not documents_folder.is_dir():
@@ -218,12 +218,12 @@ def get_review_recordings_dir() -> str:
 
 
 def get_recordings_dir() -> str:
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        # This is for packaged app
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS") and system() != "Linux":
+        # This is for packaged app (Windows/Mac)
         # TODO: change to align with dev path, but has some problems on MacOS permissions
         documents_folder = Path(sys._MEIPASS) / "Recordings"
     else:
-        # This is for dev
+        # This is for dev or Linux packaged app
         documents_folder = Path.home() / "Documents" / "AgentNetRecordings"
 
     if not documents_folder.is_dir():
@@ -466,6 +466,8 @@ def cut_video(
             ffmpeg_path = Path(sys._MEIPASS) / "ffmpeg" / "ffmpeg"
         elif system() == "Windows":
             ffmpeg_path = Path(sys._MEIPASS) / "ffmpeg" / "ffmpeg.exe"
+        else: # Linux
+            ffmpeg_path = "ffmpeg"
     else:
         if system() == "Darwin":
             ffmpeg_path = "ffmpeg"

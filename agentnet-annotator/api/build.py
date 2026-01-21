@@ -29,7 +29,7 @@ if system() == "Darwin":
         "--distpath", "./dist",
         "backend.py"
     ]
-else:
+elif system() == "Windows":
     pyinstaller_cmd = [
         "pyinstaller", "--onedir",
         f"--add-data={libs}{';' if system() == 'Windows' else ':'}{libs}",
@@ -40,6 +40,25 @@ else:
         "--collect-all", "comtypes",
         "backend.py"
     ]
+else: # Linux
+    # Find Tcl/Tk libraries in the current python environment
+    python_lib = Path(sys.base_prefix) / "lib"
+    tcl_lib = python_lib / "libtcl9.0.so"
+    tk_lib = python_lib / "libtcl9tk9.0.so"
+    
+    additional_args = []
+    if tcl_lib.exists():
+        additional_args.extend(["--add-binary", f"{tcl_lib}:."])
+    if tk_lib.exists():
+        additional_args.extend(["--add-binary", f"{tk_lib}:."])
+
+    pyinstaller_cmd = [
+        "pyinstaller", "--onedir",
+        "--hidden-import", "gevent-websocket",
+        "--runtime-hook", "runtime-hook.py",
+        "--distpath", "./dist",
+        "backend.py"
+    ] + additional_args
 
 try:
     run(pyinstaller_cmd, check=True, env=os.environ)
