@@ -4,12 +4,12 @@ import os
 import time
 import threading
 import pyautogui
-import subprocess
 from queue import Queue
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from core.logger import logger
+from data_process.export import export_raw_to_vis_std
 from core.recorder import Recorder
 from core.action_reduction import Reducer
 from core.utils import (
@@ -441,47 +441,22 @@ class RecordingService:
         self._run_export_script(RECORDING_DIR, output_path)
 
     def _run_export_script(self, input_path: str, output_path: str) -> None:
-        """Run the export script using subprocess."""
-        # Determine script path relative to the backend
-        # backend is in agentnet-annotator/api/
-        # data-process is in agentnet-annotator/../data-process/
-        current_dir = os.path.dirname(os.path.abspath(__file__)) # api/services
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir))) # .../AgentNetTool
-        script_dir = os.path.join(project_root, "data-process")
-        script_path = os.path.join(script_dir, "scripts", "raw_to_vis_std.sh")
-
-        if not os.path.exists(script_path):
-             raise FileNotFoundError(f"Export script not found at {script_path}")
-
+        """Run the export function directly (no subprocess)."""
         try:
-            # We need to run this in the data-process directory for uv to work with its pyproject.toml
             logger.info(f"Exporting from {input_path} to {output_path}")
             
             # Ensure input and output paths are absolute
             abs_input = os.path.abspath(input_path)
             abs_output = os.path.abspath(output_path)
             
-            # Ensure output directory exists before running script (script also does it but good to check)
+            # Ensure output directory exists
             os.makedirs(abs_output, exist_ok=True)
             
-            command = ["bash", script_path, abs_input, abs_output]
-            logger.info(f"Running command: {' '.join(command)} in cwd: {script_dir}")
-
-            # Run with bash explicitly
-            result = subprocess.run(
-                command,
-                cwd=script_dir,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            logger.info(f"Export successful. Stdout: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Export failed with return code {e.returncode}")
-            logger.error(f"Stdout: {e.stdout}")
-            logger.error(f"Stderr: {e.stderr}")
-            raise Exception(f"Export failed: {e.stderr}")
+            # Call the export function directly
+            export_raw_to_vis_std(abs_input, abs_output)
+            
+            logger.info(f"Export successful")
         except Exception as e:
-            logger.error(f"Unexpected error during export: {str(e)}")
-            raise
+            logger.error(f"Export failed: {str(e)}")
+            raise Exception(f"Export failed: {str(e)}")
 
