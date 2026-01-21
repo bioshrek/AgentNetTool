@@ -3,6 +3,7 @@ import base64
 import json
 import io
 import os
+import shutil
 from pathlib import Path
 
 import orjson as oj
@@ -14,7 +15,7 @@ from src.schema.action import GUIAction, GUIActionType, PyAutoGUIAction, ImageOb
 from src.schema.trajectory import Trajectory
 from src.extract_raw import process_single_directory
 
-def process_trajectory(traj_data, output_path):
+def process_trajectory(traj_data, output_path, source_path=None):
     # Use example_id if available, otherwise task_id
     example_id = traj_data.example_id if traj_data.example_id else traj_data.task_id
     
@@ -22,6 +23,17 @@ def process_trajectory(traj_data, output_path):
     task_dir_name = f"{example_id}"
     task_dir = output_path / task_dir_name
     task_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy video file if source_path is provided
+    if source_path:
+        source_path = Path(source_path)
+        # Look for .mp4 file in the source directory
+        video_files = list(source_path.glob("*.mp4"))
+        if video_files:
+            # Copy the first video file found
+            src_video = video_files[0]
+            dst_video = task_dir / "recording.mp4"
+            shutil.copy2(src_video, dst_video)
 
     # Find instruction
     instruction = ""
@@ -66,9 +78,8 @@ def process_trajectory(traj_data, output_path):
                                 img_f.write(img_bytes)
                             
                             # Generate code with absolute coordinates
-                            codes = []
+                            # First, convert normalized coordinates to absolute for all actions
                             for action in item.guiactions:
-                                # Skip non-PyAutoGUI actions (e.g., ComputerAction)
                                 if not isinstance(action, PyAutoGUIAction):
                                     continue
                                 
@@ -90,19 +101,62 @@ def process_trajectory(traj_data, output_path):
                                 if 'to_coord' in action.args and isinstance(action.args['to_coord'], (list, tuple)):
                                     tx, ty = action.args['to_coord']
                                     action.args['to_coord'] = (int(tx * width), int(ty * height))
-
+                            
+                            # Now process actions, filtering and merging as needed
+                            codes = []
+                            i = 0
+                            pyautogui_actions = [a for a in item.guiactions if isinstance(a, PyAutoGUIAction)]
+                            
+                            while i < len(pyautogui_actions):
+                                action = pyautogui_actions[i]
+                                
+                                # Check if this is a moveTo followed by scroll - skip moveTo
+                                if (action.action_type == GUIActionType.MOVE_TO and 
+                                    i + 1 < len(pyautogui_actions) and 
+                                    pyautogui_actions[i + 1].action_type == GUIActionType.SCROLL):
+                                    i += 1
+                                    continue
+                                
+                                # Check if this is a moveTo followed by dragTo - merge into drag
+                                if (action.action_type == GUIActionType.MOVE_TO and 
+                                    i + 1 < len(pyautogui_actions) and 
+                                    pyautogui_actions[i + 1].action_type == GUIActionType.DRAG_TO):
+                                    move_action = action
+                                    drag_action = pyautogui_actions[i + 1]
+                                    
+                                    # Get start position from moveTo
+                                    start_x = move_action.args.get('x', 0)
+                                    start_y = move_action.args.get('y', 0)
+                                    
+                                    # Get end position from dragTo
+                                    end_x = drag_action.args.get('x', start_x)
+                                    end_y = drag_action.args.get('y', start_y)
+                                    
+                                    # Create merged drag action
+                                    merged_drag = PyAutoGUIAction(
+                                        action_type=GUIActionType.DRAG_TO,
+                                        args={
+                                            'from_coord': [start_x, start_y],
+                                            'to_coord': [end_x, end_y],
+                                            'button': drag_action.args.get('button', 'left')
+                                        }
+                                    )
+                                    codes.append(merged_drag.to_command())
+                                    i += 2
+                                    continue
+                                
                                 codes.append(action.to_command())
+                                i += 1
                             
                             code_str = "\n".join(codes)
 
-                            # Only add step if there's actual code (skip empty actions like termination)
-                            if code_str.strip():
-                                new_traj.append({
-                                    "index": step_idx,
-                                    "code": code_str,
-                                    "screenshot": img_filename
-                                })
-                                step_idx += 1
+                            # Add step regardless of whether code is empty (keep termination steps)
+                            new_traj.append({
+                                "index": step_idx,
+                                "code": code_str,
+                                "screenshot": img_filename
+                            })
+                            step_idx += 1
                         except Exception as e:
                             print(f"Error saving image or processing action in {example_id}: {e}")
                             import traceback
@@ -114,8 +168,8 @@ def process_trajectory(traj_data, output_path):
         "traj": new_traj
     }
 
-    # Put the json file under the folder
-    with open(task_dir / f"{example_id}.json", 'w') as f:
+    # Put the json file under the folder with name traj.json
+    with open(task_dir / "traj.json", 'w') as f:
         json.dump(output_json, f, indent=4)
 
 def main():
@@ -146,7 +200,7 @@ def main():
             converted_examples = convert_examples([raw_example])
             if converted_examples:
                 try:
-                    process_trajectory(converted_examples[0], output_path)
+                    process_trajectory(converted_examples[0], output_path, source_path=input_path)
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
@@ -181,7 +235,7 @@ def main():
                     if not converted_examples:
                         continue
                         
-                    process_trajectory(converted_examples[0], output_path)
+                    process_trajectory(converted_examples[0], output_path, source_path=item)
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     print(f"Error processing {dir_name}: {e}")

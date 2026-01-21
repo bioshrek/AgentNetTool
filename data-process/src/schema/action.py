@@ -195,13 +195,75 @@ class PyAutoGUIAction(BaseModel):
                 return round(value, 4)
             return value
 
-        if isinstance(self.args, list):
-            args_str = ", ".join(repr(convert_and_round(v)) for v in self.args)
-        elif len(self.args) == 1 and next(iter(self.args.keys())) in ["clicks", "amount", "page"]:
-            args_str = repr(convert_and_round(next(iter(self.args.values()))))
+        # Handle different action types according to VIS_STD_SAMPLES format
+        if self.action_type == GUIActionType.CLICK:
+            # pyautogui.click(x, y, button='left|right|middle')
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            button = self.args.get('button', 'left')
+            return f"pyautogui.click({int(x)}, {int(y)}, button='{button}')"
+        
+        elif self.action_type == GUIActionType.RIGHT_CLICK:
+            # Convert to click with right button
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            return f"pyautogui.click({int(x)}, {int(y)}, button='right')"
+        
+        elif self.action_type == GUIActionType.MIDDLE_CLICK:
+            # Convert to click with middle button
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            return f"pyautogui.click({int(x)}, {int(y)}, button='middle')"
+        
+        elif self.action_type == GUIActionType.DOUBLE_CLICK:
+            # pyautogui.doubleClick(x, y)
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            return f"pyautogui.doubleClick({int(x)}, {int(y)})"
+        
+        elif self.action_type == GUIActionType.DRAG_TO:
+            # pyautogui.drag(start=[x1, y1], end=[x2, y2], button='left')
+            from_coord = self.args.get('from_coord', [0, 0])
+            to_coord = self.args.get('to_coord', [0, 0])
+            button = self.args.get('button', 'left')
+            if isinstance(from_coord, tuple):
+                from_coord = list(from_coord)
+            if isinstance(to_coord, tuple):
+                to_coord = list(to_coord)
+            return f"pyautogui.drag(start={[int(from_coord[0]), int(from_coord[1])]}, end={[int(to_coord[0]), int(to_coord[1])]}, button='{button}')"
+        
+        elif self.action_type == GUIActionType.SCROLL:
+            # pyautogui.scroll(amount)
+            amount = self.args.get('amount', self.args.get('clicks', 0))
+            return f"pyautogui.scroll({int(amount)})"
+        
+        elif self.action_type == GUIActionType.PRESS or self.action_type == GUIActionType.HOTKEY:
+            # pyautogui.press('key') or pyautogui.press(['key1', 'key2'])
+            # HOTKEY is converted to PRESS format
+            keys = self.args.get('keys', self.args.get('key', ''))
+            if isinstance(keys, list):
+                # Single key press: use string format, multiple keys: use list format
+                if len(keys) == 1:
+                    return f"pyautogui.press('{keys[0]}')"
+                else:
+                    return f"pyautogui.press({keys})"
+            else:
+                return f"pyautogui.press('{keys}')"
+        
+        elif self.action_type == GUIActionType.WRITE:
+            # pyautogui.write('text')
+            message = self.args.get('message', '')
+            return f"pyautogui.write('{message}')"
+        
         else:
-            args_str = ", ".join(f"{k}={repr(convert_and_round(v))}" for k, v in self.args.items())
-        return f"pyautogui.{self.action_type.value}({args_str})"
+            # Fallback for other action types
+            if isinstance(self.args, list):
+                args_str = ", ".join(repr(convert_and_round(v)) for v in self.args)
+            elif len(self.args) == 1 and next(iter(self.args.keys())) in ["clicks", "amount", "page"]:
+                args_str = repr(convert_and_round(next(iter(self.args.values()))))
+            else:
+                args_str = ", ".join(f"{k}={repr(convert_and_round(v))}" for k, v in self.args.items())
+            return f"pyautogui.{self.action_type.value}({args_str})"
 
     @classmethod
     def from_string(cls, action_string: str) -> "PyAutoGUIAction":
@@ -313,6 +375,10 @@ class ComputerAction(BaseModel):
         return v
 
     def to_command(self) -> str:
+        # Return empty string for terminate action
+        if self.action_type == ComputerActionType.TERMINATE:
+            return ""
+        
         def convert_and_round(value):
             if isinstance(value, float):
                 return round(value, 4)
