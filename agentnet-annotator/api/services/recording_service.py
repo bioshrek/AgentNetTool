@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from core.logger import logger
+from data_process.export import export_raw_to_vis_std
 from core.recorder import Recorder
 from core.action_reduction import Reducer
 from core.utils import (
@@ -429,3 +430,33 @@ class RecordingService:
         """Get path to videos folder."""
         base_dir = REVIEW_RECORDING_DIR if verifying else RECORDING_DIR
         return os.path.join(base_dir, recording_name, "video_clips")
+
+    def export_recording(self, recording_name: str, output_path: str) -> None:
+        """Export a single recording to the specified path."""
+        recording_path = os.path.join(RECORDING_DIR, recording_name)
+        self._run_export_script(recording_path, output_path)
+
+    def export_all_recordings(self, output_path: str) -> None:
+        """Export all valid recordings to the specified path."""
+        self._run_export_script(RECORDING_DIR, output_path)
+
+    def _run_export_script(self, input_path: str, output_path: str) -> None:
+        """Run the export function directly (no subprocess)."""
+        try:
+            logger.info(f"Exporting from {input_path} to {output_path}")
+            
+            # Ensure input and output paths are absolute
+            abs_input = os.path.abspath(input_path)
+            abs_output = os.path.abspath(output_path)
+            
+            # Ensure output directory exists
+            os.makedirs(abs_output, exist_ok=True)
+            
+            # Call the export function directly
+            export_raw_to_vis_std(abs_input, abs_output)
+            
+            logger.info(f"Export successful")
+        except Exception as e:
+            logger.error(f"Export failed: {str(e)}")
+            raise Exception(f"Export failed: {str(e)}")
+

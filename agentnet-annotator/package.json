@@ -8,11 +8,11 @@
     "prestart": "node -e \"if(process.platform !== 'win32') { require('child_process').exec('lsof -ti:5328 | xargs -I {} kill -9 {} >/dev/null 2>&1 || true', (err) => { if(err) console.log('Port cleanup skipped:', err.message); }); }\"",
     "start": "cross-env FLASK_DEBUG=1 electron-forge start",
     "package": "electron-forge package",
-    "make": "electron-forge make",
+    "make": "rm -rf out && electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
-    "backend": "cross-env FLASK_DEBUG=1 python -m flask --app api/index run -p 5328",
-    "build-flask": "cd api && python -m build"
+    "backend": "cross-env FLASK_DEBUG=1 uv run python -m flask --app api/index run -p 5328",
+    "build-flask": "cd api && uv run python build.py"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.4.0",
@@ -25,6 +25,7 @@
     "@electron-forge/plugin-fuses": "^7.4.0",
     "@electron-forge/plugin-webpack": "^7.4.0",
     "@electron/fuses": "^1.8.0",
+    "@reforged/maker-appimage": "^5.1.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/react-edit-text": "^5.0.4",

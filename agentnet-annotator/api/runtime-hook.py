@@ -11,6 +11,6 @@ if system() == "Darwin":
     os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
 
 # Recording dir
-os.makedirs(str(Path(sys._MEIPASS) / "AgentNetRecordings"), exist_ok=True)
+# os.makedirs(str(Path(sys._MEIPASS) / "AgentNetRecordings"), exist_ok=True)
 # Review recordings
-os.makedirs(str(Path(sys._MEIPASS) / "AgentNetReviewRecordings"), exist_ok=True)
+# os.makedirs(str(Path(sys._MEIPASS) / "AgentNetReviewRecordings"), exist_ok=True)

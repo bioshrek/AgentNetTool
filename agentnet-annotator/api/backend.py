@@ -96,6 +96,9 @@ class AgentNetBackend:
             # Browser Integration
             ("/api/browser/append_element", self.browser_controller.append_browser_element, {"methods": ["POST"]}),
             ("/api/browser/append_html", self.browser_controller.append_browser_html, {"methods": ["POST"]}),
+            # Export Operations
+            ("/api/recording/<recording_name>/export", self.recording_controller.export_recording, {"methods": ["POST"]}),
+            ("/api/recording/export_all", self.recording_controller.export_all_recordings, {"methods": ["POST"]}),
         ]
 
         for route_info in routes:

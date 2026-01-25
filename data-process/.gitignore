@@ -154,47 +154,125 @@ cython_debug/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+#  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
+#  project, it is recommended to not include all pycharm settings (or .idea directory)
+#  but only exclude the workspace settings which might contain sensitivesettings.
+.idea/
 
-# experiments
-experiments/**/*.png
-experiments/**/*.csv
-experiments/**/*.mp4
-experiments/**/*.jsonl
-experiments/**/*.json
-experiments/**/*.md
-experiments/**/*.txt
+# VSCode
+.vscode/
+*.code-workspace
 
-# macos
-*DS_Store*
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+
+# Data Processing Specific
+# ========================
 
 
-# reduction
-reduction_test_fun/
-test_folder/
-# legacy visualization
-nextjs-flask
-node_modules/
-package-lock.json
+# Temporary processing files
+temp/
+tmp/
+*.tmp
+*.temp
+processing_*
 
-tests
+# Model files
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.safetensors
 
-# ffmpeg
-ffmpeg
-user_info.json
-token.txt
-token.json
-runtime.log
+# Cache directories
+.cache/
+cache/
+__pycache__/
 
-# cloud
-agentnet-annotator/api/cloud/secret_keys/*
+# Log files
+*.log
+logs/
+log/
 
-log.txt
-ffmpeg.exe
-xcode
+# Configuration files with secrets
+config.json
+secrets.json
+.env.local
+.env.production
 
-# data-process
-data-process/datasets/
+# Experiment outputs
+experiments/
+outputs/
+results/
+
+# Wandb
+wandb/
+
+# MLflow
+mlruns/
+
+# Tensorboard
+tensorboard_logs/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Large compressed files
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*~ 

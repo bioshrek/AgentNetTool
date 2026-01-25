@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { Snackbar } from "@mui/joy";
-import { PlayIcon } from "@heroicons/react/24/outline";
+import { Snackbar, Box, Button } from "@mui/joy";
+import { PlayIcon, CloudArrowUpIcon } from "@heroicons/react/24/outline";
 import { useMain } from "../../context/MainContext";
 import TaskHubModal from "../TaskHub/TaskHubModal";
 import { StopIcon } from "@heroicons/react/24/solid";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+
 export default function Homepage() {
     const [openSnackbar, setOpenSnackbar] = useState(false);
     const [openTaskHub, setOpenTaskHub] = useState(false);
@@ -28,6 +30,7 @@ export default function Homepage() {
         userData,
     } = useMain();
     const [loading, setLoading] = useState(false);
+    const [exporting, setExporting] = useState(false);
 
     const handleRecordClick = () => {
         if (!loading) {
@@ -357,6 +360,62 @@ export default function Homepage() {
                             <dd className="mt-1 text-base leading-7 text-gray-600 dark:text-gray-300">
                                 Randomly select a task from the our task hub
                                 with detailed tutorial.
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+                <div className="mx-auto mt-2 max-w-xl sm:mt-4 lg:mt-6 lg:max-w-2xl">
+                    <dl className="grid max-w-xl grid-cols-1 gap-x-8 gap-y-6 lg:max-w-none lg:grid-cols-1 lg:gap-y-8">
+                        <div
+                            className={`relative pl-16 border border-gray-300 rounded-lg hover:border-indigo-600 p-4 dark:border-gray-600 dark:hover:border-indigo-600 ${
+                                exporting ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                            }`}
+                            onClick={async () => {
+                                if (exporting) return;
+                                try {
+                                    const path = await window.electron.openDirectoryDialog({
+                                        title: "Select Destination Folder",
+                                        buttonLabel: "Select Destination"
+                                    });
+                                    if (path) {
+                                        setExporting(true);
+                                        const response = await fetch(`http://localhost:5328/api/recording/export_all`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ output_path: path })
+                                        });
+                                        if (response.ok) {
+                                            showSuccess("Export succeed!");
+                                        } else {
+                                            showError("Export failed!");
+                                        }
+                                        setExporting(false);
+                                    }
+                                } catch (error) {
+                                    console.error(error);
+                                    showError("Error during export.");
+                                    setExporting(false);
+                                }
+                            }}
+                        >
+                            <dt className="text-lg font-semibold leading-7 text-gray-900 dark:text-gray-300">
+                                <div className="absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600">
+                                    {exporting ? (
+                                        <div
+                                            className="animate-spin inline-block size-6 border-[3px] border-current border-t-transparent text-white rounded-full"
+                                            role="status"
+                                            aria-label="loading"
+                                        >
+                                            <span className="sr-only">Loading...</span>
+                                        </div>
+                                    ) : (
+                                        <CloudArrowUpIcon className="h-6 w-6 text-white" aria-hidden="true" />
+                                    )}
+                                </div>
+                                {exporting ? "Exporting..." : "Export All Recordings"}
+                            </dt>
+                            <dd className="mt-1 text-base leading-7 text-gray-600 dark:text-gray-300">
+                                {exporting ? "Please wait while we process your data" : "Export valid recordings to local disk"}
                             </dd>
                         </div>
                     </dl>

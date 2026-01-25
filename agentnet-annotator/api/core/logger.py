@@ -1,14 +1,15 @@
 from loguru import logger as _logger
 import sys
 import os
+from pathlib import Path
 
 logger = _logger
 
 # Set up log file path based on whether the script is frozen (compiled with PyInstaller)
-if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-    logger_path = os.path.join(sys._MEIPASS, "runtime.log")
-else:
-    logger_path = "runtime.log"
+# Using user home directory for logs to avoid read-only file system issues in AppImage/packaged apps
+log_dir = Path.home() / "Documents" / "AgentNetRecordings" / "logs"
+os.makedirs(log_dir, exist_ok=True)
+logger_path = log_dir / "runtime.log"
 
 # Clear any existing handlers to avoid duplicate logs
 logger.remove()
