@@ -105,8 +105,14 @@ class RecordingService:
         if not hasattr(self, "recorder_thread") or self.recorder_thread is None:
             return FAILED, "No active recording"
 
+        recording_id: Optional[str] = None
         try:
+            recording_id = os.path.basename(
+                getattr(self.recorder_thread, "recording_path", "")
+            )
             self.recorder_thread.stop_recording()
+            if recording_id:
+                self._mark_recording_processing(recording_id)
             self.reducer_queue.put(self.reducer)
             self.recorder_thread = None
             logger.info("RecordingService: Recording stopped successfully")
@@ -374,24 +380,48 @@ class RecordingService:
                 self.reducer_queue.task_done()
                 continue
 
+            recording_id = os.path.basename(
+                getattr(reducer, "recording_path", "")
+            )
             try:
                 reducer.reduce_pipeline()
-                recording_id = os.path.basename(reducer.recording_path)
-                if self.user_recordings and recording_id in self.user_recordings:
-                    self.user_recordings[recording_id]["status"] = "local"
-
+                self._mark_recording_ready(recording_id)
                 self.socketio.emit(
                     "reduced",
                     {"status": "succeed", "message": "Recording processing completed"},
                 )
             except Exception as e:
                 logger.exception(f"RecordingService: Error in reduce_pipeline: {e}")
+                self._mark_recording_ready(recording_id)
                 self.socketio.emit(
                     "reduced",
                     {"status": "failed", "message": "Recording processing failed"},
                 )
             finally:
                 self.reducer_queue.task_done()
+
+    def _mark_recording_processing(self, recording_id: str) -> None:
+        if not recording_id:
+            return
+        if self.user_recordings is None:
+            self.user_recordings = {}
+
+        if recording_id not in self.user_recordings:
+            self.user_recordings[recording_id] = self._create_recording_info(
+                recording_id
+            )
+
+        recording = self.user_recordings[recording_id]
+        recording["status"] = "processing"
+        recording["visualizable"] = False
+        recording["broken"] = False
+        recording["recoverable"] = False
+
+    def _mark_recording_ready(self, recording_id: str) -> None:
+        if not recording_id or not self.user_recordings:
+            return
+        if recording_id in self.user_recordings:
+            self.user_recordings[recording_id]["status"] = "local"
 
     def _convert_legacy_recording_names(self) -> None:
         """Convert legacy recording names to recording IDs."""
