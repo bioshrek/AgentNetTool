@@ -37,6 +37,8 @@ interface localRecordingProp {
     recording_status: Record<string, any>;
     visualizable: boolean;
     status: string;
+    broken?: boolean;
+    recoverable?: boolean;
 }
 
 interface onlineRecordingProp {

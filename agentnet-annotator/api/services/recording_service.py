@@ -12,6 +12,7 @@ from core.logger import logger
 from data_process.export import export_raw_to_vis_std
 from core.recorder import Recorder
 from core.action_reduction import Reducer
+from core.obs_client import OBSClient, is_obs_recording, check_and_stop_recording
 from core.utils import (
     get_task_name_from_folder,
     get_description_from_folder,
@@ -24,6 +25,9 @@ from core.utils import (
     write_encrypted_json,
     check_recording_visualizable,
     check_recording_broken,
+    check_recording_recoverable,
+    find_mp4,
+    cut_video,
 )
 from core.backend_func import read_recording_status
 from core.constants import SUCCEED, FAILED
@@ -50,6 +54,10 @@ class RecordingService:
             target=self._process_reducer_queue, daemon=True
         )
         self.reducer_thread.start()
+
+        # Check for orphaned recording
+        if check_and_stop_recording():
+             logger.info("RecordingService: Stopped orphaned OBS recording on startup.")
 
     def start_recording(self, task_hub_data: Dict) -> Tuple[str, str]:
         """Start a new recording session."""
@@ -107,6 +115,132 @@ class RecordingService:
         except Exception as e:
             logger.exception("RecordingService: stop_recording failed")
             return FAILED, f"Failed to stop recording: {str(e)}"
+
+    def recover_recording(self, recording_name: str) -> Tuple[str, str]:
+        """Recover a broken recording."""
+        logger.info(f"RecordingService: recover_recording: {recording_name}")
+        
+        recording_path = self._get_recording_path(recording_name, reviewing=False)
+        if not os.path.exists(recording_path):
+            return FAILED, "Recording not found"
+
+        # Try to stop OBS if it's still running
+        try:
+             # Just create a client with dummy metadata to check status
+            temp_obs_client = OBSClient(
+                recording_path=recording_path,
+                metadata={"screen_width": 1920, "screen_height": 1080, "system": "Linux"}, # Dummy metadata, exact values don't matter for stopping
+            )
+            if is_obs_recording(temp_obs_client):
+                logger.info("RecordingService: OBS is still recording, stopping it...")
+                temp_obs_client.stop_recording()
+                # Wait a bit for OBS to finalize the file
+                time.sleep(2)
+        except Exception as e:
+            logger.warning(f"Failed to check/stop OBS: {e}")
+            
+        # Try to load metadata to get screen size
+        try:
+            from core.utils import read_encrypted_json
+            metadata_path = os.path.join(recording_path, "metadata.json")
+            if os.path.exists(metadata_path):
+                metadata = read_encrypted_json(metadata_path)
+                width = metadata.get("screen_width")
+                height = metadata.get("screen_height")
+            else:
+                 width, height = pyautogui.size()
+                 logger.warning(f"Metadata not found for {recording_name}, using current screen size: {width}x{height}")
+        except Exception as e:
+            logger.warning(f"Failed to load metadata for {recording_name}, using current screen size: {e}")
+            width, height = pyautogui.size()
+            
+        try:
+            # Check for existing data files
+            has_window_a11y = os.path.exists(os.path.join(recording_path, "a11y.jsonl"))
+            has_element_a11y = os.path.exists(os.path.join(recording_path, "element.jsonl"))
+
+            # Trim video to the last event timestamp
+            try:
+                metadata_path = os.path.join(recording_path, "metadata.json")
+                events_path = os.path.join(recording_path, "events.jsonl")
+                
+                if os.path.exists(metadata_path) and os.path.exists(events_path):
+                    metadata = read_encrypted_json(metadata_path)
+                    video_start_timestamp = metadata.get("video_start_timestamp")
+                    
+                    # Read the last line of events.jsonl
+                    with open(events_path, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                        if lines:
+                            import json
+                            last_event = json.loads(lines[-1].strip())
+                            last_event_timestamp = last_event.get("time_stamp")
+                            
+                            if video_start_timestamp and last_event_timestamp:
+                                duration = last_event_timestamp - video_start_timestamp + 1.0 # Add 1s buffer
+                                
+                                video_filename = find_mp4(recording_path)
+                                if video_filename:
+                                    video_path = os.path.join(recording_path, video_filename)
+                                    original_video_path = os.path.join(recording_path, f"original_{video_filename}")
+                                    
+                                    # Rename original video
+                                    if not os.path.exists(original_video_path):
+                                        os.rename(video_path, original_video_path)
+                                        
+                                        # Cut video
+                                        if cut_video(original_video_path, recording_path, 0, duration):
+                                            logger.info(f"Video trimmed to {duration} seconds")
+                                            # Rename the output video to the original name (cut_video outputs to video.mp4 inside the folder usually)
+                                            # Wait, cut_video implementation: 
+                                            # output_file_path = os.path.join(new_video_path, "video.mp4")
+                                            # It creates "video.mp4" in the target directory.
+                                            
+                                            # If the original file was "video.mp4", cut_video will overwrite it if we are not careful?
+                                            # cut_video takes (old_path, new_folder_path, start, end)
+                                            # It puts "video.mp4" in new_folder_path.
+                                            
+                                            # If video_filename is not "video.mp4", we should rename the result.
+                                            cut_output = os.path.join(recording_path, "video.mp4")
+                                            if video_filename != "video.mp4" and os.path.exists(cut_output):
+                                                os.rename(cut_output, video_path)
+                                            
+                                        else:
+                                            logger.error("Failed to trim video, restoring original")
+                                            if os.path.exists(original_video_path):
+                                                os.rename(original_video_path, video_path)
+                                    else:
+                                         logger.info("Original backup video already exists, skipping trim to avoid data loss.")
+
+            except Exception as e:
+                logger.error(f"Error trimming video: {e}")
+
+            self.reducer = Reducer(
+                recording_path=recording_path,
+                window_attrs={"width": width, "height": height},
+                configs={
+                    "generate_window_a11y": has_window_a11y,
+                    "generate_element_a11y": has_element_a11y,
+                },
+            )
+            
+            # Update status to processing immediately
+            if self.user_recordings and recording_name in self.user_recordings:
+                 self.user_recordings[recording_name]["status"] = "processing"
+            else:
+                 # Initialize it if not exists (though it should exist if we are recovering it)
+                 self.user_recordings = self.user_recordings or {}
+                 if recording_name not in self.user_recordings:
+                     self.user_recordings[recording_name] = self._create_recording_info(recording_name)
+                     self.user_recordings[recording_name]["status"] = "processing"
+
+            # Add to queue
+            self.reducer_queue.put(self.reducer)
+            
+            return SUCCEED, "Recovery started"
+        except Exception as e:
+            logger.exception(f"Recovery failed: {e}")
+            return FAILED, f"Recovery failed: {e}"
 
     def get_user_recordings(self) -> Dict:
         """Get list of user recordings."""
@@ -321,6 +455,7 @@ class RecordingService:
             "uploaded": False,
             "visualizable": True,  # Simplified for now
             "broken": False,
+            "recoverable": False
         }
 
         # Add creation time
@@ -335,7 +470,10 @@ class RecordingService:
         self, recording: Dict, recording_name: str, reviewing: bool
     ) -> Dict:
         """Update recording info with latest data."""
-        recording["status"] = "local"
+        # Only set status to local if it's not currently processing
+        if recording.get("status") != "processing":
+            recording["status"] = "local"
+            
         recording["task_name"] = get_task_name_from_folder(recording_name, reviewing)
         recording["task_description"] = get_description_from_folder(
             recording_name, reviewing
@@ -344,6 +482,7 @@ class RecordingService:
             recording_name, reviewing
         )
         recording["broken"] = check_recording_broken(recording_name, reviewing)
+        recording["recoverable"] = check_recording_recoverable(recording_name, reviewing)
         return recording
 
     def _get_recording_path(self, recording_name: str, reviewing: bool) -> str:

@@ -74,6 +74,8 @@ interface localRecordingProp {
     recording_status: Record<string, any>;
     visualizable: boolean;
     status: string;
+    broken?: boolean;
+    recoverable?: boolean;
 }
 
 interface onlineRecordingProp {
@@ -130,6 +132,7 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
         number | null
     >(null);
     const [isEnablingWebSocket, setIsEnablingWebSocket] = useState(false);
+    const [recoveringRecordings, setRecoveringRecordings] = useState<string[]>([]);
 
     // Missing state variables for verify tasks and UI
     const [toVerifyTasksList, setToVerifyTasksList] = useState(allVerifyTasks);
@@ -264,6 +267,36 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
             if (params.recording_name === recordingName) {
                 navigate("/");
             }
+        }
+    };
+
+    const handleRecoverRecording = async (recordingName: string) => {
+        setRecoveringRecordings(prev => [...prev, recordingName]);
+        try {
+            const response = await fetch(
+                `http://localhost:5328/api/recording/${recordingName}/recover`,
+                { method: "POST" }
+            );
+            const result = await response.json();
+
+            if (response.ok) {
+                showSuccess(result.message || "Recovery started");
+            } else {
+                showError(result.error);
+            }
+        } catch (error) {
+            showError("Network error or server is down.");
+        } finally {
+            fetchTasks(); 
+            // We might want to keep it in loading state until we get a socket event, 
+            // but for now let's just clear it after the request returns 
+            // or maybe wait a bit? 
+            // Actually, if the backend returns "Recovery started", it goes into data processing 
+            // which might take time. The list won't update to "visualizable=true" instantly.
+            // But we are refreshing fetchTasks().
+            // If the status is still broken, maybe we should keep showing loading?
+            // Let's just remove it for now to let user retry if needed, but the processing happens in background.
+            setRecoveringRecordings(prev => prev.filter(name => name !== recordingName));
         }
     };
 
@@ -570,9 +603,39 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                                                     }
                                                                 </del>
                                                             </p>
-                                                            <p className="text-[10px] text-zinc-600 truncate dark:text-zinc-400">
-                                                                BROKEN
-                                                            </p>
+                                                            {recoveringRecordings.includes(recording.name) ? (
+                                                                <div className="flex gap-1 items-center">
+                                                                    <div
+                                                                        className="animate-spin inline-block size-3 border-[2px] border-current border-t-transparent text-gray-600 rounded-full"
+                                                                        role="status"
+                                                                        aria-label="loading"
+                                                                    >
+                                                                        <span className="sr-only">
+                                                                            Loading...
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[10px] text-gray-400">
+                                                                        Recovering...
+                                                                    </p>
+                                                                </div>
+                                                            ) : recording.broken && recording.recoverable ? (
+                                                                <Chip
+                                                                    size="sm"
+                                                                    variant="solid"
+                                                                    color="warning"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleRecoverRecording(recording.name);
+                                                                    }}
+                                                                    sx={{ cursor: 'pointer', fontSize: '10px', height: '20px' }}
+                                                                >
+                                                                    Recover
+                                                                </Chip>
+                                                            ) : (
+                                                                <p className="text-[10px] text-zinc-600 truncate dark:text-zinc-400">
+                                                                    BROKEN
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     )}
                                                     {visibleNotUploadedIconIndex ===
