@@ -133,6 +133,7 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
     >(null);
     const [isEnablingWebSocket, setIsEnablingWebSocket] = useState(false);
     const [recoveringRecordings, setRecoveringRecordings] = useState<string[]>([]);
+    const showSidebarDeleteActions = false;
 
     // Missing state variables for verify tasks and UI
     const [toVerifyTasksList, setToVerifyTasksList] = useState(allVerifyTasks);
@@ -523,18 +524,24 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                     {notUploadedTasksList.map((recording) => (
                                         <ListItem
                                             key={recording.name}
-                                            onMouseEnter={() =>
+                                            onMouseEnter={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
                                                 setVisibleNotUploadedIconIndex(
                                                     notUploadedTasksList.indexOf(
                                                         recording
                                                     )
-                                                )
-                                            }
-                                            onMouseLeave={() =>
+                                                );
+                                            }}
+                                            onMouseLeave={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
                                                 setVisibleNotUploadedIconIndex(
                                                     null
-                                                )
-                                            }
+                                                );
+                                            }}
                                         >
                                             <Tooltip
                                                 arrow
@@ -638,20 +645,21 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                                             )}
                                                         </div>
                                                     )}
-                                                    {visibleNotUploadedIconIndex ===
-                                                        notUploadedTasksList.indexOf(
-                                                            recording
-                                                        ) && (
-                                                        <DeleteForeverIcon
-                                                            className=""
-                                                            onClick={() =>
-                                                                handleDeleteRecording(
-                                                                    recording.name,
-                                                                    recording.task_name
-                                                                )
-                                                            }
-                                                        />
-                                                    )}
+                                                    {showSidebarDeleteActions &&
+                                                        visibleNotUploadedIconIndex ===
+                                                            notUploadedTasksList.indexOf(
+                                                                recording
+                                                            ) && (
+                                                            <DeleteForeverIcon
+                                                                className=""
+                                                                onClick={() =>
+                                                                    handleDeleteRecording(
+                                                                        recording.name,
+                                                                        recording.task_name
+                                                                    )
+                                                                }
+                                                            />
+                                                        )}
                                                 </ListItemButton>
                                             </Tooltip>
                                         </ListItem>
@@ -700,18 +708,24 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                     {uploadedTasksList.map((recording) => (
                                         <ListItem
                                             key={recording.name}
-                                            onMouseEnter={() =>
+                                            onMouseEnter={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
                                                 setVisibleUploadedIconIndex(
                                                     uploadedTasksList.indexOf(
                                                         recording
                                                     )
-                                                )
-                                            }
-                                            onMouseLeave={() =>
+                                                );
+                                            }}
+                                            onMouseLeave={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
                                                 setVisibleUploadedIconIndex(
                                                     null
-                                                )
-                                            }
+                                                );
+                                            }}
                                         >
                                             <Tooltip
                                                 arrow
@@ -785,20 +799,21 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                                             </p>
                                                         </div>
                                                     )}
-                                                    {visibleUploadedIconIndex ===
-                                                        uploadedTasksList.indexOf(
-                                                            recording
-                                                        ) && (
-                                                        <DeleteForeverIcon
-                                                            className=""
-                                                            onClick={() =>
-                                                                handleDeleteRecording(
-                                                                    recording.name,
-                                                                    recording.task_name
-                                                                )
-                                                            }
-                                                        />
-                                                    )}
+                                                    {showSidebarDeleteActions &&
+                                                        visibleUploadedIconIndex ===
+                                                            uploadedTasksList.indexOf(
+                                                                recording
+                                                            ) && (
+                                                            <DeleteForeverIcon
+                                                                className=""
+                                                                onClick={() =>
+                                                                    handleDeleteRecording(
+                                                                        recording.name,
+                                                                        recording.task_name
+                                                                    )
+                                                                }
+                                                            />
+                                                        )}
                                                 </ListItemButton>
                                             </Tooltip>
                                         </ListItem>
@@ -839,16 +854,22 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                     {toVerifyTasksList.map((recording) => (
                                         <ListItem
                                             key={recording.recording_id}
-                                            onMouseEnter={() =>
+                                            onMouseEnter={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
                                                 setVisibleVerifyIconIndex(
                                                     toVerifyTasksList.indexOf(
                                                         recording
                                                     )
-                                                )
-                                            }
-                                            onMouseLeave={() =>
-                                                setVisibleVerifyIconIndex(null)
-                                            }
+                                                );
+                                            }}
+                                            onMouseLeave={() => {
+                                                if (!showSidebarDeleteActions) {
+                                                    return;
+                                                }
+                                                setVisibleVerifyIconIndex(null);
+                                            }}
                                         >
                                             <ListItemButton className="flex flex-row justify-between">
                                                 {recording.downloaded ? (
@@ -923,20 +944,21 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                                                         </div>
                                                     </div>
                                                 )}{" "}
-                                                {visibleVerifyIconIndex ===
-                                                    toVerifyTasksList.indexOf(
-                                                        recording
-                                                    ) && (
-                                                    <DeleteForeverIcon
-                                                        className=""
-                                                        onClick={() =>
-                                                            handleDeleteVerifyRecording(
-                                                                recording.recording_id,
-                                                                recording.task_name
-                                                            )
-                                                        }
-                                                    />
-                                                )}
+                                                {showSidebarDeleteActions &&
+                                                    visibleVerifyIconIndex ===
+                                                        toVerifyTasksList.indexOf(
+                                                            recording
+                                                        ) && (
+                                                        <DeleteForeverIcon
+                                                            className=""
+                                                            onClick={() =>
+                                                                handleDeleteVerifyRecording(
+                                                                    recording.recording_id,
+                                                                    recording.task_name
+                                                                )
+                                                            }
+                                                        />
+                                                    )}
                                             </ListItemButton>
                                         </ListItem>
                                     ))}
