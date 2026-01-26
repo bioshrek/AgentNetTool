@@ -98,6 +98,17 @@ class RecordingController:
         """Delete local recording."""
         Validator.validate_recording_name(recording_name)
 
+        status, message = self.recording_service.delete_recording(recording_name)
+        return ErrorHandler.handle_service_response((status, message))
+    
+    @handle_api_errors
+    def recover_recording_endpoint(self, recording_name: str) -> Tuple[Dict[str, Any], int]:
+        """Recover a broken recording."""
+        Validator.validate_recording_name(recording_name)
+        
+        status, message = self.recording_service.recover_recording(recording_name)
+        return ErrorHandler.handle_service_response((status, message))
+
         try:
             result = delete_local_recording(recording_name)
             return result

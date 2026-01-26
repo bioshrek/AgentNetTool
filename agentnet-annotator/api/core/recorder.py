@@ -57,23 +57,23 @@ class Recorder(QThread):
 
         self.event_queue = Queue()
         self.events_file = open(
-            os.path.join(self.recording_path, "events.jsonl"), "a", encoding="utf-8"
+            os.path.join(self.recording_path, "events.jsonl"), "a", encoding="utf-8", buffering=1
         )
         if generate_window_a11y:
             a11y_path = os.path.join(self.recording_path, "a11y.jsonl")
             init_encrpted_jsonl(a11y_path)
-            self.a11y_file = open(a11y_path, "a", encoding="utf-8")
+            self.a11y_file = open(a11y_path, "a", encoding="utf-8", buffering=1)
         if generate_element_a11y:
             element_path = os.path.join(self.recording_path, "element.jsonl")
             init_encrpted_jsonl(element_path)
-            self.element_file = open(element_path, "a", encoding="utf-8")
+            self.element_file = open(element_path, "a", encoding="utf-8", buffering=1)
 
         html_path = os.path.join(self.recording_path, "html.jsonl")
         init_encrpted_jsonl(html_path)
-        self.html_file = open(html_path, "a", encoding="utf-8")
+        self.html_file = open(html_path, "a", encoding="utf-8", buffering=1)
         top_window_path = os.path.join(self.recording_path, "top_window.jsonl")
         init_encrpted_jsonl(top_window_path)
-        self.top_window_file = open(top_window_path, "a", encoding="utf-8")
+        self.top_window_file = open(top_window_path, "a", encoding="utf-8", buffering=1)
 
         self.metadata_manager = MetadataManager(
             recording_path=self.recording_path,
@@ -175,6 +175,7 @@ class Recorder(QThread):
         self.metadata_manager.collect()
         self.obs_client.start_recording()
         self.metadata_manager.set_video_start_timestamp(time.perf_counter())
+        self.metadata_manager.save_metadata()
         self.mouse_listener.start()
         self.keyboard_listener.start()
         if self.gen_element and system() != "Linux":

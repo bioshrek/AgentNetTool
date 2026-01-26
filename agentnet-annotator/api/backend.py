@@ -93,6 +93,7 @@ class AgentNetBackend:
             ("/api/recording/<recording_name>/delete_local_recording", self.recording_controller.delete_local_recording_endpoint),
             ("/api/recording/<recording_name>/delete_local_verify_recording", self.recording_controller.delete_local_verify_recording_endpoint),
             ("/get_local_recording_info", self.recording_controller.get_local_recording_info, {"methods": ["POST"]}),
+            ("/api/recording/<recording_name>/recover", self.recording_controller.recover_recording_endpoint, {"methods": ["POST"]}),
             # Browser Integration
             ("/api/browser/append_element", self.browser_controller.append_browser_element, {"methods": ["POST"]}),
             ("/api/browser/append_html", self.browser_controller.append_browser_html, {"methods": ["POST"]}),

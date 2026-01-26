@@ -9,6 +9,7 @@ import cv2
 import base64
 import io
 import time
+import tempfile
 
 from platform import system
 from pathlib import Path
@@ -50,9 +51,29 @@ def init_encrpted_jsonl(path):
 
 
 def write_encrypted_jsonl(path, data: List):
-    with open(path, "w", encoding="utf-8") as f:
-        for data_row in data:
-            write_encrypt_line(fp=f, data=data_row)
+    # Atomic write: write to temp file then rename
+    dir_name = os.path.dirname(path)
+    # Ensure directory exists
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+        
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, dir=dir_name) as tmp_f:
+        temp_path = tmp_f.name
+        try:
+            for data_row in data:
+                write_encrypt_line(fp=tmp_f, data=data_row)
+            # Ensure buffer is written
+            tmp_f.flush()
+            os.fsync(tmp_f.fileno())
+        except Exception:
+            # Clean up temp file if writing fails (must close first)
+            tmp_f.close()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
+    
+    # Atomic replace (temp file is auto-closed by 'with' block)
+    os.replace(temp_path, path)
 
 
 def write_jsonl(path, data: List):
@@ -348,6 +369,38 @@ def check_recording_visualizable(recording_name, reviewing=True):
     )
     return False
 
+def check_recording_recoverable(recording_name: str, reviewing: bool = False) -> bool:
+    recording_path = os.path.join(
+        REVIEW_RECORDING_DIR if reviewing else RECORDING_DIR, recording_name
+    )
+
+    if not os.path.exists(recording_path):
+        return False
+        
+    events_path = os.path.join(recording_path, "events.jsonl")
+    if not os.path.exists(events_path):
+        return False
+        
+    if os.path.getsize(events_path) == 0:
+        return False
+
+    metadata_path = os.path.join(recording_path, "metadata.json")
+    if not os.path.exists(metadata_path):
+        return False
+        
+    if os.path.getsize(metadata_path) == 0:
+        return False
+
+    # Check for any video file in the root of the recording folder
+    # Exclude files in video_clips directory
+    has_video = False
+    for filename in os.listdir(recording_path):
+        if filename.endswith(".mp4") or filename.endswith(".mkv"):
+             has_video = True
+             break
+    
+    return has_video
+
 
 def get_latest_folder(parent_directory):
     subdirectories = [
@@ -460,7 +513,11 @@ def cut_video(
 ):
     os.makedirs(new_video_path, exist_ok=True)
     output_file_path = os.path.join(new_video_path, "video.mp4")
-    old_video_path = old_video_path.replace(" ", "\\ ")
+    
+    # Do NOT globally replace spaces with escaped spaces. 
+    # Only do it for string-based commands (like the Darwin case below).
+    # old_video_path = old_video_path.replace(" ", "\\ ")
+    
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         if system() == "Darwin":
             ffmpeg_path = Path(sys._MEIPASS) / "ffmpeg" / "ffmpeg"
@@ -473,9 +530,18 @@ def cut_video(
             ffmpeg_path = "ffmpeg"
         elif system() == "Windows":
             ffmpeg_path = Path(__file__).parent.parent / "ffmpeg.exe"
+        else:
+            ffmpeg_path = "ffmpeg"
+            
     if system() == "Darwin":
-        command = f"{ffmpeg_path} -ss {start_time} -to {end_time} -i {old_video_path} -c copy {output_file_path}"
+        # Darwin uses string command + shell=True, so needs escaping
+        escaped_old_path = old_video_path.replace(" ", "\\ ")
+        command = f"{ffmpeg_path} -ss {start_time} -to {end_time} -i {escaped_old_path} -c copy {output_file_path}"
+        shell_mode = True
     else:
+        # Linux/Windows use list command, so NO escaping, and shell=False (or True depending on Windows)
+        # On Linux, list + shell=True is WRONG (only 1st arg executed).
+        # We switch to shell=False for safety and correctness with list args.
         command = [
             str(ffmpeg_path),
             "-ss",
@@ -483,14 +549,16 @@ def cut_video(
             "-to",
             str(end_time),
             "-i",
-            str(old_video_path),
+            str(old_video_path), # Use unescaped path
             "-c",
             "copy",
             str(output_file_path),
         ]
+        shell_mode = False
+
     try:
         result = subprocess.run(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell_mode
         )
 
         if result.returncode != 0:
