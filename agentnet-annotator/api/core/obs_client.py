@@ -109,8 +109,8 @@ class OBSClient:
         recording_path: str, 
         metadata: dict, 
         fps=30,
-        output_width=1280, 
-        output_height=720, 
+        output_width=1920, 
+        output_height=1080, 
         output_filename: str = "video.mp4",
     ):
         self.metadata = metadata
@@ -154,11 +154,15 @@ class OBSClient:
             # TODO: check if external displays are messed up by this
             base_width *= 2
             base_height *= 2
+
+        # Add default resulution if not specified
+        if base_width is None or base_height is None:
+            base_width = 1920
+            base_height = 1080
         
         # Fix output video resolution to window resolution
-        #if base_width and base_height:
-        #    output_width = base_width
-        #    output_height = base_height
+        output_width = base_width
+        output_height = base_height
             
         scaled_width, scaled_height = _scale_resolution(base_width, base_height, output_width, output_height)
         
