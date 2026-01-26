@@ -8,6 +8,17 @@ import psutil
 
 from .logger import logger
 
+def check_and_stop_recording() -> bool:
+    """Checks if OBS is recording and stops it. Returns True if it was recording and stop signal was sent."""
+    try:
+        client = obs.ReqClient()
+        if client.get_record_status().output_active:
+             logger.info("check_and_stop_recording: Stopping orphaned recording.")
+             client.stop_record()
+             return True
+    except Exception:
+        pass
+    return False
 
 def is_obs_running() -> bool:
     try:

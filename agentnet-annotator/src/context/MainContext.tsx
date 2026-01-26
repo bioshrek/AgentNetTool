@@ -37,6 +37,8 @@ interface localRecordingProp {
     recording_status: Record<string, any>;
     visualizable: boolean;
     status: string;
+    broken?: boolean;
+    recoverable?: boolean;
 }
 
 interface onlineRecordingProp {
@@ -321,9 +323,11 @@ export const MainProvider: React.FC<{ children: ReactNode }> = ({
             name: recordingId,
             creation_time: timestamp,
             task_name: HubTaskName || "New Recording",
-            recording_status: { status: "completed" },
-            visualizable: true,
-            status: "completed"
+            recording_status: { status: "processing" },
+            visualizable: false,
+            status: "processing",
+            broken: false,
+            recoverable: false
         };
         
         console.log("Adding new recording manually:", newRecording);

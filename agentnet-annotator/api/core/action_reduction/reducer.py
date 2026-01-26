@@ -1066,9 +1066,6 @@ class Reducer:
             if self.generate_element_a11y and system() != "Linux":
                 self.match_element()
 
-            self.complete_dump(recording_path)
-            self.vis_dump(recording_path)
-
             with open(os.path.join(recording_path, "metadata.json"), "r") as f:
                 metadata = json.load(f)
             video_start_time = metadata["video_start_timestamp"]
@@ -1079,6 +1076,10 @@ class Reducer:
                 video_attrs=video_attrs,
                 window_attrs=self.window_attrs,
             )
+
+            self.complete_dump(recording_path)
+            self.vis_dump(recording_path)
+            
             reduction_time = time.perf_counter() - start_time
 
             logger.info(
