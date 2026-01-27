@@ -24,7 +24,7 @@ def process_trajectory(traj_data, output_path, source_path=None):
     task_dir = output_path / task_dir_name
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy video file if source_path is provided
+    # Copy video file and raw trajectory if source_path is provided
     if source_path:
         source_path = Path(source_path)
         # Look for .mp4 file in the source directory
@@ -34,6 +34,10 @@ def process_trajectory(traj_data, output_path, source_path=None):
             src_video = video_files[0]
             dst_video = task_dir / "recording.mp4"
             shutil.copy2(src_video, dst_video)
+
+        raw_traj_src = source_path / "traj_raw.jsonl"
+        if raw_traj_src.exists():
+            shutil.copy2(raw_traj_src, task_dir / "traj_raw.jsonl")
 
     # Find instruction
     instruction = ""

@@ -238,6 +238,10 @@ interface VideoDict {
     [key: number]: string;
 }
 
+interface DeleteEventOptions {
+    suppressInfoToast?: boolean;
+}
+
 const Page = () => {
     const [recordingName, setRecordingName] = useState("");
     const [taskName, setTaskName] = useState("");
@@ -266,6 +270,10 @@ const Page = () => {
     const showRecordDetailActions = false;
     const [isExporting, setIsExporting] = useState(false);
     const [duration, setDuration] = useState(0);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(
+        null
+    );
 
     const [valMin, setValMin] = useState<number>(1);
     const [valMax, setValMax] = useState<number>(2);
@@ -431,6 +439,76 @@ const Page = () => {
         }, 3000);
     };
 
+    const requestDeleteEvent = (index: number) => {
+        setPendingDeleteIndex(index);
+        setDeleteDialogOpen(true);
+    };
+
+    const closeDeleteDialog = () => {
+        setDeleteDialogOpen(false);
+        setPendingDeleteIndex(null);
+    };
+
+    const confirmPendingDelete = async () => {
+        if (pendingDeleteIndex === null) {
+            return;
+        }
+
+        const deleted = await handleDeleteEvent(pendingDeleteIndex);
+        if (deleted) {
+            closeDeleteDialog();
+        }
+    };
+
+    const persistRecordingChanges = async (
+        updatedEvents: eventProp[],
+        options: { silent?: boolean } = {}
+    ): Promise<boolean> => {
+        if (!recordingName) {
+            showError("Recording name is missing.");
+            return false;
+        }
+
+        try {
+            const response = await fetch(
+                `http://localhost:5328/api/recording/${recordingName}/confirm`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(updatedEvents),
+                }
+            );
+
+            let result: any = {};
+            try {
+                result = await response.json();
+            } catch (parseError) {
+                console.error("Failed to parse confirmation response", parseError);
+            }
+
+            if (response.ok) {
+                if (!options.silent) {
+                    showSuccess(
+                        (result && result.success) ||
+                            "Recording modifications saved successfully"
+                    );
+                }
+                return true;
+            }
+
+            showError(
+                (result && result.error) || "Failed to save recording modifications"
+            );
+            return false;
+        } catch (error) {
+            console.error("Error saving recording", error);
+            showError("Network error or server is down.");
+            return false;
+        }
+    };
+
     const handleKeyDown = useCallback(
         (event: KeyboardEvent) => {
             if (event.key === "ArrowUp" && activeStep > 0) {
@@ -548,24 +626,37 @@ const Page = () => {
     );
 
     // Handle delete event
-    const handleDeleteEvent = (index: number) => {
+    const handleDeleteEvent = async (
+        index: number,
+        options: DeleteEventOptions = {}
+    ): Promise<boolean> => {
+        if (index < 0 || index >= eventsList.length) {
+            return false;
+        }
+
+        const { suppressInfoToast = false } = options;
+
+        const previousEvents = [...eventsList];
+        const previousVideoDict = { ...videoClipSrcDict };
+        const previousHistory = [...operationHistory];
+        const previousRedo = [...redoStack];
+        const previousDirty = dirty;
+
         const newEventsList = [...eventsList];
         const removedEvent = newEventsList.splice(index, 1)[0];
+        if (!removedEvent) {
+            return false;
+        }
 
-        // Create a snapshot of the current state
         const newVideoClipSrcDict = { ...videoClipSrcDict };
-        for (
-            let key = index;
-            key < Object.keys(newVideoClipSrcDict).length - 1;
-            key++
-        ) {
+        const dictLength = Object.keys(newVideoClipSrcDict).length;
+        for (let key = index; key < dictLength - 1; key++) {
             newVideoClipSrcDict[key] = newVideoClipSrcDict[key + 1];
         }
-        const lastKey = Object.keys(newVideoClipSrcDict).length - 1;
+        const lastKey = dictLength - 1;
         delete newVideoClipSrcDict[lastKey];
 
-        // Save the operation to history for undo and clear redo stack
-        setOperationHistory([
+        const updatedHistory = [
             ...operationHistory,
             {
                 type: "delete",
@@ -573,14 +664,33 @@ const Page = () => {
                 index: index,
                 videoClipSrcDict: videoClipSrcDict,
             },
-        ]);
-        setRedoStack([]); // Clear the redo stack on new action
+        ];
 
-        // Apply changes
+        setOperationHistory(updatedHistory);
+        setRedoStack([]);
         setEventsList(newEventsList);
         setVideoClipSrcDict(newVideoClipSrcDict);
-        showInfo(`Event ${index + 1} deleted`);
+        if (!suppressInfoToast) {
+            showInfo(`Event ${index + 1} deleted`);
+        }
         setIsDirty(true);
+
+        const saved = await persistRecordingChanges(newEventsList, {
+            silent: true,
+        });
+
+        if (saved) {
+            setIsDirty(previousDirty);
+            return true;
+        }
+
+        // revert changes if persistence fails
+        setEventsList(previousEvents);
+        setVideoClipSrcDict(previousVideoDict);
+        setOperationHistory(previousHistory);
+        setRedoStack(previousRedo);
+        setIsDirty(previousDirty);
+        return false;
     };
 
     // Handle change event
@@ -641,7 +751,7 @@ const Page = () => {
     };
 
     // Redo the last undone operation
-    const handleRedo = () => {
+    const handleRedo = async () => {
         if (redoStack.length === 0) {
             return;
         }
@@ -650,8 +760,9 @@ const Page = () => {
         setRedoStack([...redoStack]);
 
         if (lastUndoOperation.type === "delete") {
-            // Redo the delete event
-            handleDeleteEvent(lastUndoOperation.index);
+            await handleDeleteEvent(lastUndoOperation.index, {
+                suppressInfoToast: true,
+            });
         } else if (lastUndoOperation.type === "change") {
             // Redo the change event
             const newEventsList = [...eventsList];
@@ -660,8 +771,8 @@ const Page = () => {
 
             // Save the redo operation to history
             setOperationHistory([...operationHistory, lastUndoOperation]);
+            setIsDirty(true);
         }
-        setIsDirty(true);
     };
 
     const handleExportRecording = async () => {
@@ -717,97 +828,70 @@ const Page = () => {
     };
 
     const onSave = async () => {
-        handleConfirmRecording();
-        setIsDirty(false);
-        blocker.proceed();
+        const saved = await handleConfirmRecording();
+        if (saved) {
+            setIsDirty(false);
+            blocker.proceed();
+        }
     };
     const onCancel = () => {
         setIsDirty(false);
         blocker.proceed();
     };
-    const handleConfirmRecording = async () => {
-        const confirmResponse = await fetch(
-            `http://localhost:5328/api/recording/${recordingName}/confirm`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(eventsList),
-            }
-        );
-        const confirmResult = await confirmResponse.json();
-        if (confirmResponse.ok) {
-            showSuccess(confirmResult.success);
-        } else {
-            showError(confirmResult.error);
-        }
+    const handleConfirmRecording = async (
+        updatedEvents: eventProp[] = eventsList,
+        options: { silent?: boolean } = {}
+    ): Promise<boolean> => {
+        return persistRecordingChanges(updatedEvents, options);
     };
 
     const handleUploadRecording = async () => {
-        console.log(eventsList);
-        const confirmResponse = await fetch(
-            `http://localhost:5328/api/recording/${recordingName}/confirm`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(eventsList),
-            }
-        );
-        const confirmResult = await confirmResponse.json();
-
-        if (confirmResponse.ok) {
-            setIsUploading(true);
-            setUploadProgress(0);
-            console.log(duration);
-            let estimatedTime = 0;
-            if (duration !== 0) estimatedTime = 50 * duration;
-            else estimatedTime = 50;
-            const intervalTime = 100;
-            let progress = 0;
-
-            const interval = setInterval(() => {
-                progress += intervalTime * (1 - progress / estimatedTime);
-                const calculatedProgress = (progress / estimatedTime) * 100;
-
-                if (calculatedProgress >= 99) {
-                    clearInterval(interval);
-                    setUploadProgress(99);
-                } else setUploadProgress(calculatedProgress);
-            }, intervalTime);
-
-            SocketService.Post("upload_recording", {
-                recording_name: recordingName,
-            })
-                .then((data) => {
-                    console.log(
-                        `Uploading ${data.recording_name} successfully`
-                    );
-                    showSuccess(
-                        `Uploading ${data.recording_name} successfully`
-                    );
-                    clearInterval(interval);
-                    setUploadProgress(100);
-                    setIsUploading(false);
-                    setRecordingStatus({ ...recordingStatus, uploaded: true });
-                    setIsDirty(false);
-                    fetchTasks();
-                    fetchUserData();
-                })
-                .catch((error) => {
-                    console.error(
-                        `Failed in uploading ${error.recording_name} `
-                    );
-                    showError(`Failed in uploading ${error.recording_name} `);
-                    clearInterval(interval);
-                    setUploadProgress(0);
-                    setIsUploading(false);
-                });
-        } else {
-            showError(confirmResult.error);
+        const saved = await handleConfirmRecording(eventsList, { silent: true });
+        if (!saved) {
+            return;
         }
+
+        console.log(eventsList);
+        setIsUploading(true);
+        setUploadProgress(0);
+        console.log(duration);
+        let estimatedTime = 0;
+        if (duration !== 0) estimatedTime = 50 * duration;
+        else estimatedTime = 50;
+        const intervalTime = 100;
+        let progress = 0;
+
+        const interval = setInterval(() => {
+            progress += intervalTime * (1 - progress / estimatedTime);
+            const calculatedProgress = (progress / estimatedTime) * 100;
+
+            if (calculatedProgress >= 99) {
+                clearInterval(interval);
+                setUploadProgress(99);
+            } else setUploadProgress(calculatedProgress);
+        }, intervalTime);
+
+        SocketService.Post("upload_recording", {
+            recording_name: recordingName,
+        })
+            .then((data) => {
+                console.log(`Uploading ${data.recording_name} successfully`);
+                showSuccess(`Uploading ${data.recording_name} successfully`);
+                clearInterval(interval);
+                setUploadProgress(100);
+                setIsUploading(false);
+                setRecordingStatus({ ...recordingStatus, uploaded: true });
+                setIsDirty(false);
+                fetchTasks();
+                fetchUserData();
+            })
+            .catch((error) => {
+                console.error(`Failed in uploading ${error.recording_name} `);
+                showError(`Failed in uploading ${error.recording_name} `);
+                clearInterval(interval);
+                setUploadProgress(0);
+                setIsUploading(false);
+            });
     };
 
     // METHOD2: use Worker to upload
@@ -1159,6 +1243,7 @@ const Page = () => {
 
                 <div className="flex items-center justify-center gap-1 mr-10">
                     <Box>
+                        {/* hide it for now
                         <Button
                             ref={cutButtonRef}
                             color="primary"
@@ -1168,7 +1253,7 @@ const Page = () => {
                             sx={{ width: "100px" }}
                         >
                             Annotate
-                        </Button>
+                        </Button> */}
                         <Popper
                             id="popover"
                             open={popOpen}
@@ -1710,7 +1795,7 @@ const Page = () => {
                                                     index === activeStep ? (
                                                         <ClearIcon
                                                             onClick={() =>
-                                                                handleDeleteEvent(
+                                                                requestDeleteEvent(
                                                                     index
                                                                 )
                                                             }
@@ -1864,6 +1949,73 @@ const Page = () => {
             >
                 {message}
             </Snackbar>
+            {deleteDialogOpen ? (
+                <Dialog
+                    open={deleteDialogOpen}
+                    onClose={closeDeleteDialog}
+                    className="relative z-20"
+                >
+                    <DialogBackdrop
+                        transition
+                        className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity data-[closed]:opacity-0 data-[enter]:duration-300 data-[leave]:duration-200 data-[enter]:ease-out data-[leave]:ease-in"
+                    />
+
+                    <div className="fixed inset-0 z-20 w-screen overflow-y-auto">
+                        <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                            <DialogPanel
+                                transition
+                                className="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all data-[closed]:translate-y-4 data-[closed]:opacity-0 data-[enter]:duration-300 data-[leave]:duration-200 data-[enter]:ease-out data-[leave]:ease-in sm:my-8 sm:w-full sm:max-w-lg data-[closed]:sm:translate-y-0 data-[closed]:sm:scale-95"
+                            >
+                                <div className="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                                    <div className="sm:flex sm:items-start">
+                                        <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                                            <ExclamationTriangleIcon
+                                                aria-hidden="true"
+                                                className="h-6 w-6 text-red-600"
+                                            />
+                                        </div>
+                                        <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
+                                            <DialogTitle
+                                                as="h3"
+                                                className="text-base font-semibold leading-6 text-gray-900"
+                                            >
+                                                Delete Step?
+                                            </DialogTitle>
+                                            <div className="mt-2">
+                                                <p className="text-sm text-gray-500">
+                                                    Step {pendingDeleteIndex !== null
+                                                        ? pendingDeleteIndex + 1
+                                                        : ""} will be removed from this recording.
+                                                </p>
+                                                <p className="mt-2 text-sm text-red-600">
+                                                    Once removed, this step can't be undone.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
+                                    <button
+                                        type="button"
+                                        onClick={confirmPendingDelete}
+                                        className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
+                                    >
+                                        Delete Step
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-autofocus
+                                        onClick={closeDeleteDialog}
+                                        className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </DialogPanel>
+                        </div>
+                    </div>
+                </Dialog>
+            ) : null}
             {blocker.state === "blocked" ? (
                 <Dialog
                     open={blocker.state === "blocked"}

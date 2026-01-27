@@ -717,6 +717,7 @@ class Reducer:
     def complete_dump(self, dir):
         os.makedirs(dir, exist_ok=True)
         file_path = os.path.join(dir, "reduced_events_complete.jsonl")
+        raw_traj_path = os.path.join(dir, "traj_raw.jsonl")
 
         data = []
         for action in self.reduced_actions:
@@ -728,6 +729,10 @@ class Reducer:
         # logger.info(f"Data: {data}")
 
         write_encrypted_jsonl(file_path, data=data)
+        try:
+            write_encrypted_jsonl(raw_traj_path, data=data)
+        except Exception as exc:
+            logger.warning(f"Reducer: failed to persist traj_raw.jsonl: {exc}")
 
     def vis_dump(self, dir):
         os.makedirs(dir, exist_ok=True)
@@ -1041,6 +1046,9 @@ class Reducer:
                 os.path.join(recording_path, "reduced_events_complete.jsonl")
             ):
                 os.remove(os.path.join(recording_path, "reduced_events_complete.jsonl"))
+                traj_raw_path = os.path.join(recording_path, "traj_raw.jsonl")
+                if os.path.exists(traj_raw_path):
+                    os.remove(traj_raw_path)
 
             self.compress(events)
             self.reduce_all()
