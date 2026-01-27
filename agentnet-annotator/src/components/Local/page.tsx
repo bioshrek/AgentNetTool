@@ -1243,6 +1243,7 @@ const Page = () => {
 
                 <div className="flex items-center justify-center gap-1 mr-10">
                     <Box>
+                        {/* hide it for now
                         <Button
                             ref={cutButtonRef}
                             color="primary"
@@ -1252,7 +1253,7 @@ const Page = () => {
                             sx={{ width: "100px" }}
                         >
                             Annotate
-                        </Button>
+                        </Button> */}
                         <Popper
                             id="popover"
                             open={popOpen}
