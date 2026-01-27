@@ -246,6 +246,7 @@ def annotate_task(recording_name, socketservice):
     reduced_events_complete_path = os.path.join(
         folder_path, "reduced_events_complete.jsonl"
     )
+    traj_raw_path = os.path.join(folder_path, "traj_raw.jsonl")
     element_path = os.path.join(folder_path, "element.jsonl")
     html_path = os.path.join(folder_path, "html.jsonl")
     metadata_path = os.path.join(folder_path, "metadata.json")
@@ -300,6 +301,22 @@ def annotate_task(recording_name, socketservice):
     write_encrypted_jsonl(
         os.path.join(new_folder_path, "reduced_events_complete.jsonl"),
         new_reduced_events_complete,
+    )
+
+    # Preserve original trajectories
+    raw_events_source = (
+        read_encrypted_jsonl(traj_raw_path)
+        if os.path.exists(traj_raw_path)
+        else reduced_events_complete
+    )
+    new_traj_raw = [
+        event
+        for event in raw_events_source
+        if start_timestamp <= event["start_time"] <= end_timestamp
+    ]
+    write_encrypted_jsonl(
+        os.path.join(new_folder_path, "traj_raw.jsonl"),
+        new_traj_raw,
     )
 
     # Optional: html.jsonl
