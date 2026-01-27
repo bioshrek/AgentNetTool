@@ -82,10 +82,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const navigate = useNavigate();
 
-  const [showCheck, setShowCheck] = React.useState(() => {
-    return localStorage.getItem("checkCompleted") !== "true";
-  });
-  const [showTerms, setShowTerms] = React.useState(false);
+  // don't show check or terms
+  const [showCheck, setShowCheck] = React.useState(true);
+  const [showTerms, setShowTerms] = React.useState(true);
 
 
   React.useEffect(() => {
