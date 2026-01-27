@@ -83,8 +83,8 @@ export default function App() {
   const navigate = useNavigate();
 
   // don't show check or terms
-  const [showCheck, setShowCheck] = React.useState(true);
-  const [showTerms, setShowTerms] = React.useState(true);
+  const [showCheck, setShowCheck] = React.useState(false);
+  const [showTerms, setShowTerms] = React.useState(false);
 
 
   React.useEffect(() => {
