@@ -21,7 +21,7 @@ sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
 logger.add(sys.stdout, level="INFO", colorize=True)
 
 # Add a handler for file logging
-logger.add(logger_path, level="INFO", colorize=False, mode="w")
+logger.add(logger_path, level="INFO", colorize=False, mode="a")
 
 # Print the absolute path of the logger file
 abs_logger_path = os.path.abspath(logger_path)
