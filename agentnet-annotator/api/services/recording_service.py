@@ -589,10 +589,19 @@ class RecordingService:
         )
         if os.path.exists(complete_events_path):
             complete_events_data = read_encrypted_jsonl(complete_events_path)
+            
+            # Create mapping of id -> description from UI-modified events
+            vis_descriptions = {event["id"]: event["description"] for event in events_data}
+            
             ids_left = [event["id"] for event in events_data]
-            new_complete_data = [
-                action for action in complete_events_data if action["id"] in ids_left
-            ]
+            new_complete_data = []
+            for action in complete_events_data:
+                if action["id"] in ids_left:
+                    # Sync description from vis file to maintain consistency
+                    if action["id"] in vis_descriptions:
+                        action["description"] = vis_descriptions[action["id"]]
+                    new_complete_data.append(action)
+            
             write_encrypted_jsonl(complete_events_path, new_complete_data)
 
     def _get_videos_folder_path(self, recording_name: str, verifying: bool) -> str:

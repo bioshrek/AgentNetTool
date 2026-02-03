@@ -694,15 +694,26 @@ const Page = () => {
     };
 
     // Handle change event
-    const handleChange = (e: any, index: number, key: string) => {
+    const handleChange = async (e: any, index: number, key: string) => {
+        // Validation to prevent saving if index is invalid (e.g. concurrent delete)
+        if (index < 0 || index >= eventsList.length || !eventsList[index]) {
+            console.error(`Invalid event index: ${index}`);
+            return;
+        }
+
         const newEventsList = [...eventsList];
-        const prevEvent = { ...newEventsList[index] };
+        const prevEvent = { ...eventsList[index] }; // Capture previous state before modification
+        
+        // Create a copy of the event to modify (avoid mutating state directly)
+        const updatedEvent = { ...newEventsList[index] };
 
         if (key === "action") {
-            newEventsList[index].action = e;
+            updatedEvent.action = e;
         } else if (key === "description") {
-            newEventsList[index].description = e;
+            updatedEvent.description = e;
         }
+
+        newEventsList[index] = updatedEvent;
 
         // Save the operation to history for undo and clear redo stack
         setOperationHistory([
@@ -710,7 +721,7 @@ const Page = () => {
             {
                 type: "change",
                 prevEvent: prevEvent,
-                newEvent: newEventsList[index],
+                newEvent: updatedEvent,
                 index: index,
             },
         ]);
@@ -718,7 +729,21 @@ const Page = () => {
 
         // Apply changes
         setEventsList(newEventsList);
-        setIsDirty(true);
+        
+        try {
+            const saved = await persistRecordingChanges(newEventsList, {
+                silent: false,
+            });
+
+            if (saved) {
+                setIsDirty(false);
+            } else {
+                setIsDirty(true);
+            }
+        } catch (error) {
+            console.error("Failed to save changes:", error);
+            setIsDirty(true);
+        }
     };
 
     // Undo the last operation
