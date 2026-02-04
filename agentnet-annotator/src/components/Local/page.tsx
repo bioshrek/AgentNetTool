@@ -824,14 +824,16 @@ const Page = () => {
               errorMessage = result.error;
             }
           } catch (e) {
-            // Failed to parse JSON, use default error message
+            // Failed to parse JSON, try to get status text
+            errorMessage = `Export failed: ${response.status} ${response.statusText}`;
           }
           showError(errorMessage);
         }
       }
     } catch (error) {
       console.error(error);
-      showError("Error exporting recording.");
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      showError(`Error exporting recording: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }
