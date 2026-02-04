@@ -70,7 +70,12 @@ def export_raw_to_vis_std(input_path: Union[str, Path], output_path: Union[str, 
             converted_examples = convert_examples([raw_example])
             if converted_examples:
                 try:
-                    process_trajectory(converted_examples[0], output_path, source_path=input_path)
+                    process_trajectory(
+                        converted_examples[0], 
+                        output_path, 
+                        source_path=input_path,
+                        raw_events=raw_example.get('events', [])
+                    )
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
@@ -156,7 +161,12 @@ def export_raw_to_vis_std(input_path: Union[str, Path], output_path: Union[str, 
                         )
                         continue
                     
-                    process_trajectory(converted_examples[0], output_path, source_path=item)
+                    process_trajectory(
+                        converted_examples[0], 
+                        output_path, 
+                        source_path=item,
+                        raw_events=raw_example.get('events', [])
+                    )
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
