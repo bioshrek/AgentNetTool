@@ -15,7 +15,7 @@ from data_process.schema.action import GUIAction, GUIActionType, PyAutoGUIAction
 from data_process.schema.trajectory import Trajectory
 from data_process.extract_raw import process_single_directory
 
-def process_trajectory(traj_data, output_path, source_path=None):
+def process_trajectory(traj_data, output_path, source_path=None, raw_events=None):
     # Use example_id if available, otherwise task_id
     example_id = traj_data.example_id if traj_data.example_id else traj_data.task_id
     
@@ -57,6 +57,7 @@ def process_trajectory(traj_data, output_path, source_path=None):
     new_traj = []
     last_image = None
     step_idx = 0
+    action_count = 0  # Track which action we're processing for raw_events lookup
 
     for item in traj_data.content:
         if isinstance(item, ImageObservation):
@@ -80,6 +81,30 @@ def process_trajectory(traj_data, output_path, source_path=None):
                             img_path = task_dir / img_filename
                             with open(img_path, 'wb') as img_f:
                                 img_f.write(img_bytes)
+                            
+                            # Save candidate images if available from raw events
+                            if raw_events and action_count < len(raw_events):
+                                raw_event = raw_events[action_count]
+                                if "frame_candidates" in raw_event and raw_event["frame_candidates"]:
+                                    candidates_dir = task_dir / "step_img_candidates" / f"step_{step_idx}"
+                                    candidates_dir.mkdir(parents=True, exist_ok=True)
+                                    
+                                    for candidate in raw_event["frame_candidates"]:
+                                        try:
+                                            candidate_data = candidate["frame"]
+                                            if candidate_data.startswith('data:image/png;base64,'):
+                                                candidate_data = candidate_data.replace('data:image/png;base64,', '')
+                                            
+                                            candidate_bytes = base64.b64decode(candidate_data)
+                                            candidate_filename = f"{candidate['label']}.png"
+                                            candidate_path = candidates_dir / candidate_filename
+                                            
+                                            with open(candidate_path, 'wb') as cand_f:
+                                                cand_f.write(candidate_bytes)
+                                        except Exception as e:
+                                            print(f"Warning: Failed to save candidate image '{candidate.get('label', 'unknown')}' for step {step_idx}: {e}")
+                            
+                            action_count += 1
                             
                             # Generate code with absolute coordinates
                             # First, convert normalized coordinates to absolute for all actions
@@ -227,7 +252,12 @@ def main():
                 
             if converted_examples:
                 try:
-                    process_trajectory(converted_examples[0], output_path, source_path=input_path)
+                    process_trajectory(
+                        converted_examples[0], 
+                        output_path, 
+                        source_path=input_path,
+                        raw_events=raw_example.get('events', [])
+                    )
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
@@ -286,7 +316,12 @@ def main():
                         )
                         continue
                         
-                    process_trajectory(converted_examples[0], output_path, source_path=item)
+                    process_trajectory(
+                        converted_examples[0], 
+                        output_path, 
+                        source_path=item,
+                        raw_events=raw_example.get('events', [])
+                    )
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
@@ -329,7 +364,11 @@ def main():
             try:
                 converted_examples = convert_examples([raw_example])
                 if converted_examples:
-                    process_trajectory(converted_examples[0], output_path)
+                    process_trajectory(
+                        converted_examples[0], 
+                        output_path,
+                        raw_events=raw_example.get('events', [])
+                    )
                 else:
                     print(f"Failed to convert {episode_id}: convert_examples returned empty list")
             except Exception as e:
@@ -370,7 +409,11 @@ def main():
                     print(f"Failed to convert {raw_file.name}: convert_examples returned empty list")
                     continue
                 
-                process_trajectory(converted_examples[0], output_path)
+                process_trajectory(
+                    converted_examples[0], 
+                    output_path,
+                    raw_events=raw_example.get('events', [])
+                )
             except Exception as e:
                 import traceback
                 print(
