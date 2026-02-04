@@ -260,8 +260,8 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             actionlist = [
                 PyAutoGUIAction(action_type=GUIActionType(action_type), target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
             ]
-        except Exception:
-            return None
+        except Exception as e:
+            raise ValueError(f"Failed to parse click action '{action}' in episode:{episode_id}, step:{step_num}: {e}") from e
     elif action_type == "tripleClick":
         coordinates = action.split("(")[1].split(")")[0]
         x, y = map(float, coordinates.split(","))
@@ -641,6 +641,7 @@ def convert_examples(sample_raw):
                 
             try:
                 actions = build_actions(episode_id, i, rawaction, img_size, trace)
+                content.append(GUIAction(instruction=instruction, guiactions=actions))
             except Exception as e:
                 print(
                     f"Error in {episode_id}, step {i}: Failed to build actions from '{rawaction}':\n"
@@ -649,12 +650,6 @@ def convert_examples(sample_raw):
                 )
                 import traceback
                 traceback.print_exc()
-                break
-                
-            if actions is not None:
-                content.append(GUIAction(instruction=instruction, guiactions=actions))
-            else:
-                print(f"Error in {episode_id}, step {i}: build_actions returned None for action '{rawaction}'")
                 break
 
         if content is not None:

@@ -141,13 +141,13 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
             raw_traj["metadata"] = metadata
     except FileNotFoundError as e:
         print(f"Error in {episode_dir}: metadata.json not found at {metadata_path}")
-        return None
+        raise
     except json.JSONDecodeError as e:
         print(f"Error in {episode_dir}: metadata.json is not valid JSON: {e}")
-        return None
+        raise
     except Exception as e:
         print(f"Error in {episode_dir}: Failed to read metadata.json: {type(e).__name__}: {e}")
-        return None
+        raise
 
     vis_events_path = os.path.join(basedir, episode_dir, "reduced_events_vis.jsonl")
     complete_events_path = os.path.join(basedir, episode_dir, "reduced_events_complete.jsonl")
@@ -156,14 +156,14 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
         video_files = [f for f in os.listdir(os.path.join(basedir, episode_dir)) if f.endswith(".mp4")]
         if not video_files:
             print(f"Error in {episode_dir}: No .mp4 video file found in directory")
-            return None
+            raise FileNotFoundError(f"No .mp4 video file found in {episode_dir}")
         video_name = video_files[0]
         video_path = os.path.join(basedir, episode_dir, video_name)
         if len(video_files) > 1:
             print(f"Warning in {episode_dir}: Multiple .mp4 files found, using {video_name}")
     except Exception as e:
         print(f"Error in {episode_dir}: Failed to locate video file: {type(e).__name__}: {e}")
-        return None
+        raise
 
     try:
         events: List[Dict[str, Any]] = []
@@ -171,28 +171,28 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
         # Check if event files exist
         if not os.path.exists(complete_events_path):
             print(f"Error in {episode_dir}: reduced_events_complete.jsonl not found at {complete_events_path}")
-            return None
+            raise FileNotFoundError(f"reduced_events_complete.jsonl not found at {complete_events_path}")
         
         if not os.path.exists(vis_events_path):
             print(f"Error in {episode_dir}: reduced_events_vis.jsonl not found at {vis_events_path}")
-            return None
+            raise FileNotFoundError(f"reduced_events_vis.jsonl not found at {vis_events_path}")
         
         try:
             with open(complete_events_path, encoding="utf-8-sig") as f:
                 complete_events = [json.loads(line) for line in f if line.strip()]
         except json.JSONDecodeError as e:
             print(f"Error in {episode_dir}: reduced_events_complete.jsonl contains invalid JSON: {e}")
-            return None
+            raise
         except Exception as e:
             print(f"Error in {episode_dir}: Failed to read reduced_events_complete.jsonl: {type(e).__name__}: {e}")
-            return None
+            raise
 
         try:
             with open(vis_events_path, encoding="utf-8-sig") as f:
                 num_lines = sum(1 for _ in f)
         except Exception as e:
             print(f"Error in {episode_dir}: Failed to count lines in reduced_events_vis.jsonl: {type(e).__name__}: {e}")
-            return None
+            raise
             
         if num_lines != len(complete_events):
             print(
@@ -200,7 +200,11 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                 f"reduced_events_vis.jsonl has {num_lines} lines, "
                 f"reduced_events_complete.jsonl has {len(complete_events)} events"
             )
-            return None
+            raise ValueError(
+                f"Event count mismatch in {episode_dir}: "
+                f"reduced_events_vis.jsonl has {num_lines} lines, "
+                f"reduced_events_complete.jsonl has {len(complete_events)} events"
+            )
 
         last_time_stamp = None
         try:
@@ -272,7 +276,7 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                         video_length = get_duration(video_path)
                     except Exception as e:
                         print(f"Error in {episode_dir}: Failed to get video duration: {type(e).__name__}: {e}")
-                        return None
+                        raise
                     
                     if complete_events[index]["action"].lower() in ["click", "mouse_press", "drag"] and "pre_move" in complete_events[index]:
                         try:
@@ -308,7 +312,7 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
             print(f"Error in {episode_dir}: Failed to process events: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
-            return None
+            raise
 
         video_length = get_duration(video_path)
         if last_time_stamp is not None:
@@ -346,13 +350,13 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
         raw_traj["events"] = events
         if len(events) == 0:
             print(f"Error in {episode_dir}: No events were successfully processed")
-            return None
+            raise ValueError(f"No events were successfully processed in {episode_dir}")
         return raw_traj
     except Exception as e:
         print(f"Error in {episode_dir}: Unexpected error during processing: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        raise
 
 
 def get_raw_examples(basedir: str, num_samples: int = -1, load_image: bool = True) -> List[Dict[str, Any]]:
