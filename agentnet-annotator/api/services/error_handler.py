@@ -32,7 +32,7 @@ class ErrorHandler:
     ) -> Tuple[Response, int]:
         """Create a standardized error response."""
         return (
-            jsonify({"status": FAILED, "message": message, "error": True}),
+            jsonify({"status": FAILED, "message": message, "error": message}),
             status_code,
         )
 
@@ -84,7 +84,7 @@ def handle_api_errors(f: Callable) -> Callable:
         except Exception as e:
             logger.exception(f"Unexpected error in {f.__name__}: {e}")
             return ErrorHandler.create_error_response(
-                "An unexpected error occurred", 500
+                str(e), 500
             )
 
     return wrapper

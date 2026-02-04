@@ -198,22 +198,64 @@ def main():
         
         # Extract raw trajectory from folder
         # Note: process_single_directory expects str paths
-        raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
+        try:
+            raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
+        except Exception as e:
+            import traceback
+            print(
+                f"Error extracting raw data from {dir_name}:\n"
+                f"  - Error type: {type(e).__name__}\n"
+                f"  - Error message: {str(e)}\n"
+            )
+            traceback.print_exc()
+            raise
         
         if raw_example:
-            converted_examples = convert_examples([raw_example])
+            try:
+                converted_examples = convert_examples([raw_example])
+            except Exception as e:
+                import traceback
+                print(
+                    f"Error converting raw example to standardized format for {dir_name}:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                    f"  - Raw example had {len(raw_example.get('events', []))} events\n"
+                    f"  - Task name: {raw_example.get('task_name', 'unknown')}\n"
+                )
+                traceback.print_exc()
+                raise
+                
             if converted_examples:
                 try:
                     process_trajectory(converted_examples[0], output_path, source_path=input_path)
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
+                    print(
+                        f"Error processing trajectory {dir_name}:\n"
+                        f"  - Error type: {type(e).__name__}\n"
+                        f"  - Error message: {str(e)}\n"
+                    )
                     traceback.print_exc()
-                    print(f"Error processing trajectory {dir_name}: {e}")
+                    raise
             else:
-                 print("Failed to convert raw example to standardized format")
+                error_msg = (
+                    f"Failed to convert raw example to standardized format\n"
+                    f"  - Directory: {dir_name}\n"
+                    f"  - Raw example had {len(raw_example.get('events', []))} events\n"
+                    f"  - Task name: {raw_example.get('task_name', 'unknown')}\n"
+                )
+                print(error_msg)
+                raise Exception(error_msg)
         else:
-             print("Failed to extract raw data from directory")
+            error_msg = (
+                f"Failed to extract raw data from directory (process_single_directory returned None)\n"
+                f"  - Directory: {input_path}\n"
+                f"  - This usually means required files are missing or corrupted\n"
+                f"  - Check the logs above for specific file errors\n"
+            )
+            print(error_msg)
+            raise Exception(error_msg)
         return
 
     # Check if input is a directory of raw recordings
@@ -232,24 +274,46 @@ def main():
                 try:
                     print(f"Processing {dir_name}...")
                     raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
-                    if not raw_example: 
+                    if not raw_example:
+                        print(f"Skipping {dir_name}: process_single_directory returned None (check logs above for details)")
                         continue
                         
                     converted_examples = convert_examples([raw_example])
                     if not converted_examples:
+                        print(
+                            f"Skipping {dir_name}: Failed to convert to standardized format\n"
+                            f"  - Raw example had {len(raw_example.get('events', []))} events\n"
+                        )
                         continue
                         
                     process_trajectory(converted_examples[0], output_path, source_path=item)
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
-                    print(f"Error processing {dir_name}: {e}")
+                    import traceback
+                    print(
+                        f"Error processing {dir_name}:\n"
+                        f"  - Error type: {type(e).__name__}\n"
+                        f"  - Error message: {str(e)}\n"
+                    )
+                    traceback.print_exc()
         return
 
     processed_episode_ids = {item for item in os.listdir(args.output_dir)}
 
     if args.raw_file.endswith(".json"):
-        with open(args.raw_file, encoding="utf-8") as f:
-            raw_examples = oj.loads(f.read())
+        try:
+            with open(args.raw_file, encoding="utf-8") as f:
+                raw_examples = oj.loads(f.read())
+        except FileNotFoundError:
+            print(f"Error: File not found: {args.raw_file}")
+            return
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in {args.raw_file}: {e}")
+            return
+        except Exception as e:
+            print(f"Error reading {args.raw_file}: {type(e).__name__}: {e}")
+            return
+            
         if args.num_samples != -1:
             raw_examples = raw_examples[: args.num_samples]
         
@@ -258,20 +322,34 @@ def main():
              raw_examples = [raw_examples]
 
         for raw_example in tqdm(raw_examples):
-            if raw_example["episode_id"] in processed_episode_ids:
+            episode_id = raw_example.get("episode_id", "unknown")
+            if episode_id in processed_episode_ids:
                 continue
             
             try:
                 converted_examples = convert_examples([raw_example])
                 if converted_examples:
                     process_trajectory(converted_examples[0], output_path)
+                else:
+                    print(f"Failed to convert {episode_id}: convert_examples returned empty list")
             except Exception as e:
-                print(f"Error processing {raw_example.get('episode_id', 'unknown')}: {e}")
+                import traceback
+                print(
+                    f"Error processing {episode_id}:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                traceback.print_exc()
 
     else:
         raw_files = list(Path(args.raw_file).glob("*.json"))
+        if not raw_files:
+            print(f"Warning: No .json files found in {args.raw_file}")
+            return
+            
         if args.num_samples != -1:
             raw_files = raw_files[: args.num_samples]
+            
         for raw_file in tqdm(raw_files):
             episode_id = raw_file.stem
             if episode_id in processed_episode_ids:
@@ -279,14 +357,28 @@ def main():
             try:
                 with open(raw_file, encoding="utf-8") as f:
                     raw_example = oj.loads(f.read())
+            except json.JSONDecodeError as e:
+                print(f"Error: Invalid JSON in {raw_file.name}: {e}")
+                continue
+            except Exception as e:
+                print(f"Error reading {raw_file.name}: {type(e).__name__}: {e}")
+                continue
                 
+            try:
                 converted_examples = convert_examples([raw_example])
                 if not converted_examples:
+                    print(f"Failed to convert {raw_file.name}: convert_examples returned empty list")
                     continue
                 
                 process_trajectory(converted_examples[0], output_path)
             except Exception as e:
-                print(f"Error processing {raw_file.name}: {e}")
+                import traceback
+                print(
+                    f"Error processing {raw_file.name}:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                traceback.print_exc()
 
 if __name__ == "__main__":
     main()
