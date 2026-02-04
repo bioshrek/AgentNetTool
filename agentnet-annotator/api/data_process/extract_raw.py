@@ -310,17 +310,10 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                     if complete_events[index]["action"].lower() in ["click", "mouse_press", "drag"] and load_image:
                         click_time_relative = event["start_time"] - raw_traj["metadata"]["video_start_timestamp"]
                         candidate_offsets = [
-                            ("before_10", -1.0),
-                            ("before_08", -0.8),
-                            ("before_06", -0.6),
-                            ("before_04", -0.4),
-                            ("before_03", -0.3),
-                            ("before_02", -0.2),
-                            ("before_01", -0.1),
-                            ("at_click", 0.0),
-                            ("after_01", 0.1),
-                            ("after_03", 0.3),
-                            ("after_05", 0.5),
+                            ("img_1", -0.2),
+                            ("img_2", -0.4),
+                            ("img_3", -0.6),
+                            ("img_4", -0.8),
                         ]
                         
                         for label, offset in candidate_offsets:
