@@ -202,8 +202,10 @@ def reduce_content(episode_id, step_num, content):
                 isinstance(item, GUIAction)
                 and item.guiactions[0].action_type == "hotkey"
                 and len(item.guiactions[0].args["keys"]) == 1
-                and (item.guiactions[0].args["keys"][0] in ["shift", "ctrl", "cmd"])
+                and (item.guiactions[0].args["keys"][0] in ["shift", "ctrl"])
             ):
+                # Only filter out shift and ctrl when pressed alone
+                # Keep cmd as it's used for system shortcuts like Spotlight (cmd alone)
                 if isinstance(reduced_content[-1], ImageObservation):
                     reduced_content.pop()
                 elif isinstance(reduced_content[-1], TextObservation):
