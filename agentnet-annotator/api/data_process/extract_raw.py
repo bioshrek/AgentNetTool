@@ -139,86 +139,190 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
         with open(metadata_path, encoding="utf-8-sig") as f:
             metadata = json.load(f)
             raw_traj["metadata"] = metadata
-    except Exception:
+    except FileNotFoundError as e:
+        print(f"Error in {episode_dir}: metadata.json not found at {metadata_path}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Error in {episode_dir}: metadata.json is not valid JSON: {e}")
+        return None
+    except Exception as e:
+        print(f"Error in {episode_dir}: Failed to read metadata.json: {type(e).__name__}: {e}")
         return None
 
     vis_events_path = os.path.join(basedir, episode_dir, "reduced_events_vis.jsonl")
     complete_events_path = os.path.join(basedir, episode_dir, "reduced_events_complete.jsonl")
 
     try:
-        video_name = [f for f in os.listdir(os.path.join(basedir, episode_dir)) if f.endswith(".mp4")][0]
+        video_files = [f for f in os.listdir(os.path.join(basedir, episode_dir)) if f.endswith(".mp4")]
+        if not video_files:
+            print(f"Error in {episode_dir}: No .mp4 video file found in directory")
+            return None
+        video_name = video_files[0]
         video_path = os.path.join(basedir, episode_dir, video_name)
-    except Exception:
+        if len(video_files) > 1:
+            print(f"Warning in {episode_dir}: Multiple .mp4 files found, using {video_name}")
+    except Exception as e:
+        print(f"Error in {episode_dir}: Failed to locate video file: {type(e).__name__}: {e}")
         return None
 
     try:
         events: List[Dict[str, Any]] = []
-        with open(complete_events_path, encoding="utf-8-sig") as f:
-            complete_events = [json.loads(line) for line in f if line.strip()]
+        
+        # Check if event files exist
+        if not os.path.exists(complete_events_path):
+            print(f"Error in {episode_dir}: reduced_events_complete.jsonl not found at {complete_events_path}")
+            return None
+        
+        if not os.path.exists(vis_events_path):
+            print(f"Error in {episode_dir}: reduced_events_vis.jsonl not found at {vis_events_path}")
+            return None
+        
+        try:
+            with open(complete_events_path, encoding="utf-8-sig") as f:
+                complete_events = [json.loads(line) for line in f if line.strip()]
+        except json.JSONDecodeError as e:
+            print(f"Error in {episode_dir}: reduced_events_complete.jsonl contains invalid JSON: {e}")
+            return None
+        except Exception as e:
+            print(f"Error in {episode_dir}: Failed to read reduced_events_complete.jsonl: {type(e).__name__}: {e}")
+            return None
 
-        with open(vis_events_path, encoding="utf-8-sig") as f:
-            num_lines = sum(1 for _ in f)
-            if num_lines != len(complete_events):
-                return None
+        try:
+            with open(vis_events_path, encoding="utf-8-sig") as f:
+                num_lines = sum(1 for _ in f)
+        except Exception as e:
+            print(f"Error in {episode_dir}: Failed to count lines in reduced_events_vis.jsonl: {type(e).__name__}: {e}")
+            return None
+            
+        if num_lines != len(complete_events):
+            print(
+                f"Error in {episode_dir}: Event count mismatch - "
+                f"reduced_events_vis.jsonl has {num_lines} lines, "
+                f"reduced_events_complete.jsonl has {len(complete_events)} events"
+            )
+            return None
 
         last_time_stamp = None
-        with open(vis_events_path, encoding="utf-8-sig") as f:
-            for index, line in enumerate(f):
-                if not line.strip():
-                    continue
-                event = json.loads(line)
-                if event["description"] != complete_events[index]["description"]:
-                    event["description"] = complete_events[index]["description"]
-                if "\n" in event["description"]:
-                    event["description"] = event["description"].split("\n")[0]
-                if (
-                    "click" in complete_events[index]["action"].lower()
-                    or "mouse_press" in complete_events[index]["action"].lower()
-                    or "click" in complete_events[index]["description"].lower()
-                ) and "(" not in event["description"]:
-                    event["description"] = (
-                        event["description"]
-                        + f" ({complete_events[index]['coordinate']['x']}, {complete_events[index]['coordinate']['y']})"
-                    )
-                elif "scroll" in complete_events[index]["action"].lower():
-                    event["trace"] = complete_events[index]["trace"]
+        try:
+            with open(vis_events_path, encoding="utf-8-sig") as f:
+                for index, line in enumerate(f):
+                    if not line.strip():
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError as e:
+                        print(f"Error in {episode_dir}: Line {index+1} in reduced_events_vis.jsonl is invalid JSON: {e}")
+                        continue
+                    
+                    if event["description"] != complete_events[index]["description"]:
+                        event["description"] = complete_events[index]["description"]
+                    if "\n" in event["description"]:
+                        event["description"] = event["description"].split("\n")[0]
+                    
+                    # Check if this looks like a click event and needs coordinates
+                    action_lower = complete_events[index]["action"].lower()
+                    desc_lower = complete_events[index]["description"].lower()
+                    
+                    if (
+                        "click" in action_lower
+                        or "mouse_press" in action_lower
+                        or "click" in desc_lower
+                    ) and "(" not in event["description"]:
+                        # Verify this is actually a mouse event, not a keyboard event
+                        # that happens to have "click" substring in its description
+                        if "coordinate" not in complete_events[index]:
+                            # This is a keyboard event misidentified as a mouse event
+                            # due to substring matching (e.g., "Click" in description, "Counter" contains chars)
+                            error_msg = (
+                                f"\n{'='*80}\n"
+                                f"ERROR: Event combining keyboard and mouse detected in {episode_dir}\n"
+                                f"{'='*80}\n"
+                                f"Event Index: {index} (ID: {event.get('id', 'N/A')})\n"
+                                f"Event Action: {complete_events[index]['action']}\n"
+                                f"Event Description: {complete_events[index]['description']}\n"
+                                f"\nPROBLEM:\n"
+                                f"  This event was matched as a mouse event (due to 'click' substring in description)\n"
+                                f"  but it's actually a keyboard 'press' event without coordinate data.\n"
+                                f"\nREASON:\n"
+                                f"  The description contains a substring that matches the 'click' pattern.\n"
+                                f"  This causes the code to expect 'coordinate' field which doesn't exist for keyboard events.\n"
+                                f"\nEXPECTED BEHAVIOR:\n"
+                                f"  Keyboard events (action='press') should NOT be processed as mouse events.\n"
+                                f"  Events with mouse-related keywords in descriptions need proper validation.\n"
+                                f"\nRECOMMENDATION:\n"
+                                f"  This recording contains ambiguous event data that combines keyboard and mouse semantics.\n"
+                                f"  The event structure needs to be fixed at the recording level.\n"
+                                f"{'='*80}\n"
+                            )
+                            print(error_msg)
+                            raise ValueError(
+                                f"Cannot export recording '{episode_dir}': Event {index} combines keyboard and mouse actions. "
+                                f"Event action is '{complete_events[index]['action']}' but description '{complete_events[index]['description']}' "
+                                f"contains mouse-related keywords. This type of event combination is not supported for export."
+                            )
+                        else:
+                            event["description"] = (
+                                event["description"]
+                                + f" ({complete_events[index]['coordinate']['x']}, {complete_events[index]['coordinate']['y']})"
+                            )
+                    elif "scroll" in action_lower:
+                        event["trace"] = complete_events[index]["trace"]
 
-                video_length = get_duration(video_path)
-                if complete_events[index]["action"].lower() in ["click", "mouse_press", "drag"] and "pre_move" in complete_events[index]:
-                    timestamp, _ = find_loading_complete_time(
-                        video_path,
-                        start_time=complete_events[index]["pre_move"]["start_time"],
-                        end_time=event["start_time"],
-                        video_start_timestamp=raw_traj["metadata"]["video_start_timestamp"],
-                    )
-                else:
-                    timestamp = max(0.01, event["start_time"] - raw_traj["metadata"]["video_start_timestamp"] - 0.5)
-
-                if timestamp >= video_length:
-                    timestamp = max(0.0, video_length - 0.01)
-
-                try:
-                    frame = extract_frame_at_timestamp(video_path, timestamp)
-                    if frame and load_image:
-                        event["frame"] = f"data:image/png;base64,{encode_image(frame)}"
+                    try:
+                        video_length = get_duration(video_path)
+                    except Exception as e:
+                        print(f"Error in {episode_dir}: Failed to get video duration: {type(e).__name__}: {e}")
+                        return None
+                    
+                    if complete_events[index]["action"].lower() in ["click", "mouse_press", "drag"] and "pre_move" in complete_events[index]:
+                        try:
+                            timestamp, _ = find_loading_complete_time(
+                                video_path,
+                                start_time=complete_events[index]["pre_move"]["start_time"],
+                                end_time=event["start_time"],
+                                video_start_timestamp=raw_traj["metadata"]["video_start_timestamp"],
+                            )
+                        except Exception as e:
+                            print(f"Warning in {episode_dir}, event {index}: Failed to find loading complete time: {type(e).__name__}: {e}")
+                            timestamp = max(0.01, event["start_time"] - raw_traj["metadata"]["video_start_timestamp"] - 0.5)
                     else:
-                        event["frame"] = None
-                except Exception:
-                    event["frame"] = None
+                        timestamp = max(0.01, event["start_time"] - raw_traj["metadata"]["video_start_timestamp"] - 0.5)
 
-                last_time_stamp = event["end_time"]
-                event["axtree"] = None
-                events.append(event)
+                    if timestamp >= video_length:
+                        timestamp = max(0.0, video_length - 0.01)
+
+                    try:
+                        frame = extract_frame_at_timestamp(video_path, timestamp)
+                        if frame and load_image:
+                            event["frame"] = f"data:image/png;base64,{encode_image(frame)}"
+                        else:
+                            event["frame"] = None
+                    except Exception as e:
+                        print(f"Warning in {episode_dir}, event {index}: Failed to extract frame at {timestamp}s: {type(e).__name__}: {e}")
+                        event["frame"] = None
+
+                    last_time_stamp = event["end_time"]
+                    event["axtree"] = None
+                    events.append(event)
+        except Exception as e:
+            print(f"Error in {episode_dir}: Failed to process events: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
         video_length = get_duration(video_path)
         if last_time_stamp is not None:
             if video_length + raw_traj["metadata"]["video_start_timestamp"] > last_time_stamp:
-                terminate_time_stamp, _ = find_terminate_time(
-                    video_path,
-                    start_time=last_time_stamp,
-                    end_time=video_length + raw_traj["metadata"]["video_start_timestamp"],
-                    video_start_timestamp=raw_traj["metadata"]["video_start_timestamp"],
-                )
+                try:
+                    terminate_time_stamp, _ = find_terminate_time(
+                        video_path,
+                        start_time=last_time_stamp,
+                        end_time=video_length + raw_traj["metadata"]["video_start_timestamp"],
+                        video_start_timestamp=raw_traj["metadata"]["video_start_timestamp"],
+                    )
+                except Exception as e:
+                    print(f"Warning in {episode_dir}: Failed to find terminate time, using video end: {type(e).__name__}: {e}")
+                    terminate_time_stamp = max(0.0, video_length - 0.01)
             else:
                 terminate_time_stamp = max(0.0, video_length - 0.01)
             try:
@@ -235,14 +339,19 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                     "axtree": None,
                 }
                 events.append(terminate_event)
-            except Exception:
+            except Exception as e:
+                print(f"Warning in {episode_dir}: Failed to create termination event: {type(e).__name__}: {e}")
                 pass
 
         raw_traj["events"] = events
         if len(events) == 0:
+            print(f"Error in {episode_dir}: No events were successfully processed")
             return None
         return raw_traj
-    except Exception:
+    except Exception as e:
+        print(f"Error in {episode_dir}: Unexpected error during processing: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 

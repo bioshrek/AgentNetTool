@@ -52,7 +52,19 @@ def export_raw_to_vis_std(input_path: Union[str, Path], output_path: Union[str, 
             return
         
         # Extract raw trajectory from folder
-        raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
+        try:
+            raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
+        except Exception as e:
+            import traceback
+            error_msg = (
+                f"Failed to extract raw data from directory: {input_path}\n"
+                f"Error type: {type(e).__name__}\n"
+                f"Error message: {str(e)}\n"
+                f"Traceback:\n"
+            )
+            traceback.print_exc()
+            print(error_msg)
+            raise Exception(error_msg) from e
         
         if raw_example:
             converted_examples = convert_examples([raw_example])
@@ -62,15 +74,46 @@ def export_raw_to_vis_std(input_path: Union[str, Path], output_path: Union[str, 
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
                     import traceback
+                    error_msg = (
+                        f"Failed to process trajectory for {dir_name}\n"
+                        f"Error type: {type(e).__name__}\n"
+                        f"Error message: {str(e)}\n"
+                        f"Input path: {input_path}\n"
+                        f"Output path: {output_path}\n"
+                    )
                     traceback.print_exc()
-                    print(f"Error processing trajectory {dir_name}: {e}")
-                    raise
+                    print(error_msg)
+                    raise Exception(error_msg) from e
             else:
-                print("Failed to convert raw example to standardized format")
-                raise Exception("Failed to convert raw example to standardized format")
+                error_msg = (
+                    f"Failed to convert raw example to standardized format\n"
+                    f"Directory: {dir_name}\n"
+                    f"Input path: {input_path}\n"
+                    f"Raw example had {len(raw_example.get('events', []))} events\n"
+                    f"Task name: {raw_example.get('task_name', 'unknown')}\n"
+                )
+                print(error_msg)
+                raise Exception(error_msg)
         else:
-            print("Failed to extract raw data from directory")
-            raise Exception("Failed to extract raw data from directory")
+            # Check what files exist in the directory for better debugging
+            dir_contents = list(input_path.iterdir()) if input_path.exists() else []
+            has_metadata = (input_path / "metadata.json").exists()
+            has_video = any(f.suffix == '.mp4' for f in dir_contents)
+            has_vis_events = (input_path / "reduced_events_vis.jsonl").exists()
+            has_complete_events = (input_path / "reduced_events_complete.jsonl").exists()
+            
+            error_msg = (
+                f"Failed to extract raw data from directory: {input_path}\n"
+                f"Directory exists: {input_path.exists()}\n"
+                f"Has metadata.json: {has_metadata}\n"
+                f"Has .mp4 video: {has_video}\n"
+                f"Has reduced_events_vis.jsonl: {has_vis_events}\n"
+                f"Has reduced_events_complete.jsonl: {has_complete_events}\n"
+                f"Files in directory: {[f.name for f in dir_contents[:10]]}\n"
+                f"\nThis likely means one of the required files is missing or corrupted.\n"
+            )
+            print(error_msg)
+            raise Exception(error_msg)
         return
     
     # Check if input is a directory of raw recordings
@@ -90,18 +133,39 @@ def export_raw_to_vis_std(input_path: Union[str, Path], output_path: Union[str, 
                     print(f"Processing {dir_name}...")
                     raw_example = process_single_directory(parent_dir, dir_name, load_image=True)
                     if not raw_example:
-                        print(f"Failed to extract raw data from {dir_name}")
+                        # Check what files exist for debugging
+                        has_metadata = (item / "metadata.json").exists()
+                        has_video = any(f.suffix == '.mp4' for f in item.iterdir())
+                        has_vis_events = (item / "reduced_events_vis.jsonl").exists()
+                        has_complete_events = (item / "reduced_events_complete.jsonl").exists()
+                        print(
+                            f"Failed to extract raw data from {dir_name}\n"
+                            f"  - Has metadata.json: {has_metadata}\n"
+                            f"  - Has .mp4 video: {has_video}\n"
+                            f"  - Has reduced_events_vis.jsonl: {has_vis_events}\n"
+                            f"  - Has reduced_events_complete.jsonl: {has_complete_events}\n"
+                        )
                         continue
                     
                     converted_examples = convert_examples([raw_example])
                     if not converted_examples:
-                        print(f"Failed to convert {dir_name}")
+                        print(
+                            f"Failed to convert {dir_name}\n"
+                            f"  - Raw example had {len(raw_example.get('events', []))} events\n"
+                            f"  - Task name: {raw_example.get('task_name', 'unknown')}\n"
+                        )
                         continue
                     
                     process_trajectory(converted_examples[0], output_path, source_path=item)
                     print(f"Successfully processed {dir_name}")
                 except Exception as e:
-                    print(f"Error processing {dir_name}: {e}")
+                    import traceback
+                    print(
+                        f"Error processing {dir_name}:\n"
+                        f"  - Error type: {type(e).__name__}\n"
+                        f"  - Error message: {str(e)}\n"
+                    )
+                    traceback.print_exc()
                     # Continue with other recordings even if one fails
                     continue
         return

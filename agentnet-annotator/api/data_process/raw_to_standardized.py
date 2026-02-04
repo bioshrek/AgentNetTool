@@ -573,54 +573,113 @@ def convert_examples(sample_raw):
         ]
     )
     for item in sample_raw:
-        episode_id = item["episode_id"]
+        episode_id = item.get("episode_id", "unknown")
         if episode_id in skip_episode:
+            print(f"Skipping known problematic episode: {episode_id}")
             continue
-        task_instruction = item["task_name"]
+        
+        task_instruction = item.get("task_name", "unknown")
         try:
             step_num = len(item["events"])
-        except Exception:
+        except KeyError:
+            print(f"Error in {episode_id}: 'events' key not found in raw data")
             continue
-        img_size = [item["metadata"]["screen_width"], item["metadata"]["screen_height"]]
+        except Exception as e:
+            print(f"Error in {episode_id}: Failed to get events: {type(e).__name__}: {e}")
+            continue
+        
+        if step_num == 0:
+            print(f"Error in {episode_id}: No events found")
+            continue
+        
+        try:
+            img_size = [item["metadata"]["screen_width"], item["metadata"]["screen_height"]]
+        except KeyError as e:
+            print(f"Error in {episode_id}: Missing metadata field: {e}")
+            continue
+        except Exception as e:
+            print(f"Error in {episode_id}: Failed to get screen size from metadata: {type(e).__name__}: {e}")
+            continue
+            
         item["events"] = preprocess_events(item["events"])
         content = None
         for i in range(step_num):
             if i == 0:
                 try:
+                    if "frame" not in item["events"][i]:
+                        print(f"Error in {episode_id}, step {i}: 'frame' key not found in event")
+                        break
                     content = [
                         ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os"),
                     ]
-                except Exception:
-                    raise ValueError(f"Error in episode {episode_id}, step {i}")
+                except Exception as e:
+                    print(f"Error in {episode_id}, step {i}: Failed to create ImageObservation: {type(e).__name__}: {e}")
+                    break
                 content.append(TextObservation(content=task_instruction, source="user"))
             else:
                 try:
+                    if "frame" not in item["events"][i]:
+                        print(f"Warning in {episode_id}, step {i}: 'frame' key not found, skipping this observation")
+                        continue
                     content.append(
                         ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os")
                     )
-                except Exception:
+                except Exception as e:
+                    print(f"Warning in {episode_id}, step {i}: Failed to create ImageObservation: {type(e).__name__}: {e}")
                     continue
-            instruction = item["events"][i]["action"]
-            rawaction = item["events"][i]["description"]
-            trace = item["events"][i].get("trace")
-            actions = build_actions(episode_id, i, rawaction, img_size, trace)
+            
+            try:
+                instruction = item["events"][i].get("action", "unknown")
+                rawaction = item["events"][i].get("description", "")
+                if not rawaction:
+                    print(f"Error in {episode_id}, step {i}: Empty description field")
+                    break
+                trace = item["events"][i].get("trace")
+            except Exception as e:
+                print(f"Error in {episode_id}, step {i}: Failed to extract event fields: {type(e).__name__}: {e}")
+                break
+                
+            try:
+                actions = build_actions(episode_id, i, rawaction, img_size, trace)
+            except Exception as e:
+                print(
+                    f"Error in {episode_id}, step {i}: Failed to build actions from '{rawaction}':\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                import traceback
+                traceback.print_exc()
+                break
+                
             if actions is not None:
                 content.append(GUIAction(instruction=instruction, guiactions=actions))
             else:
-                raise ValueError(f"Unknown action: {rawaction} in episode {episode_id}, step {i}")
+                print(f"Error in {episode_id}, step {i}: build_actions returned None for action '{rawaction}'")
+                break
 
         if content is not None:
-            system_instruction = (
-                "You are a GUI agent. You are given a task and a screenshot of the screen. You need to perform a series of "
-                "pyautogui actions to complete the task."
-            )
-            content = [TextObservation(content=system_instruction, source="system")] + content
-            reduced_content = reduce_content(episode_id, i, content)
-            trajs.append(
-                Trajectory(task_id="agentnet", type="end2end", example_id=str(episode_id), content=reduced_content)
-            )
+            try:
+                system_instruction = (
+                    "You are a GUI agent. You are given a task and a screenshot of the screen. You need to perform a series of "
+                    "pyautogui actions to complete the task."
+                )
+                content = [TextObservation(content=system_instruction, source="system")] + content
+                reduced_content = reduce_content(episode_id, i, content)
+                trajs.append(
+                    Trajectory(task_id="agentnet", type="end2end", example_id=str(episode_id), content=reduced_content)
+                )
+            except Exception as e:
+                print(
+                    f"Error in {episode_id}: Failed to create trajectory:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                import traceback
+                traceback.print_exc()
+                continue
         else:
-            return []
+            print(f"Error in {episode_id}: Content is None, likely due to errors in event processing")
+            
     return trajs
 
 
@@ -635,32 +694,83 @@ def main():
     processed_episode_ids = {item.split(".json")[0] for item in os.listdir(args.output_dir)}
 
     if args.raw_file.endswith(".json"):
-        with open(args.raw_file, encoding="utf-8") as f:
-            raw_examples = oj.loads(f.read())
+        try:
+            with open(args.raw_file, encoding="utf-8") as f:
+                raw_examples = oj.loads(f.read())
+        except FileNotFoundError:
+            print(f"Error: File not found: {args.raw_file}")
+            return
+        except oj.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in {args.raw_file}: {e}")
+            return
+        except Exception as e:
+            print(f"Error reading {args.raw_file}: {type(e).__name__}: {e}")
+            return
+            
         if args.num_samples != -1:
             raw_examples = raw_examples[: args.num_samples]
+        
         for raw_example in tqdm(raw_examples):
-            if raw_example["episode_id"] in processed_episode_ids:
+            episode_id = raw_example.get("episode_id", "unknown")
+            if episode_id in processed_episode_ids:
                 continue
-            converted_example = convert_examples([raw_example])[0]
-            with open(f"{args.output_dir}/{converted_example.example_id}.json", "wb") as f:
-                f.write(oj.dumps(converted_example.model_dump()))
+            
+            try:
+                converted_examples = convert_examples([raw_example])
+                if not converted_examples:
+                    print(f"Warning: No trajectory produced for {episode_id}")
+                    continue
+                converted_example = converted_examples[0]
+                with open(f"{args.output_dir}/{converted_example.example_id}.json", "wb") as f:
+                    f.write(oj.dumps(converted_example.model_dump()))
+            except Exception as e:
+                import traceback
+                print(
+                    f"Error processing {episode_id}:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                traceback.print_exc()
     else:
         raw_files = list(Path(args.raw_file).glob("*.json"))
+        if not raw_files:
+            print(f"Warning: No .json files found in {args.raw_file}")
+            return
+            
         if args.num_samples != -1:
             raw_files = raw_files[: args.num_samples]
+        
         for raw_file in tqdm(raw_files):
             episode_id = raw_file.stem
             if episode_id in processed_episode_ids:
                 continue
-            with open(raw_file, encoding="utf-8") as f:
-                raw_example = oj.loads(f.read())
-            converted_examples = convert_examples([raw_example])
-            if not converted_examples:
+            
+            try:
+                with open(raw_file, encoding="utf-8") as f:
+                    raw_example = oj.loads(f.read())
+            except oj.JSONDecodeError as e:
+                print(f"Error: Invalid JSON in {raw_file.name}: {e}")
                 continue
-            converted_example = converted_examples[0]
-            with open(f"{args.output_dir}/{converted_example.example_id}.json", "wb") as f:
-                f.write(oj.dumps(converted_example.model_dump()))
+            except Exception as e:
+                print(f"Error reading {raw_file.name}: {type(e).__name__}: {e}")
+                continue
+            
+            try:
+                converted_examples = convert_examples([raw_example])
+                if not converted_examples:
+                    print(f"Warning: No trajectory produced for {raw_file.name}")
+                    continue
+                converted_example = converted_examples[0]
+                with open(f"{args.output_dir}/{converted_example.example_id}.json", "wb") as f:
+                    f.write(oj.dumps(converted_example.model_dump()))
+            except Exception as e:
+                import traceback
+                print(
+                    f"Error processing {raw_file.name}:\n"
+                    f"  - Error type: {type(e).__name__}\n"
+                    f"  - Error message: {str(e)}\n"
+                )
+                traceback.print_exc()
 
 
 if __name__ == "__main__":
