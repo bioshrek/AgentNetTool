@@ -107,7 +107,7 @@ VK_CODE = {
     88: "X",
     89: "Y",
     90: "Z",
-    # Numpad
+    # Numpad (Windows VK codes)
     96: "0",
     97: "1",
     98: "2",
@@ -119,5 +119,17 @@ VK_CODE = {
     104: "8",
     105: "9",
     110: ".",
+    # Numpad (Linux X11 keycodes)
+    65429: "7",  # KP_Home
+    65430: "4",  # KP_Left
+    65431: "8",  # KP_Up
+    65432: "6",  # KP_Right
+    65433: "2",  # KP_Down
+    65434: "9",  # KP_Page_Up
+    65435: "3",  # KP_Page_Down
+    65436: "1",  # KP_End
+    65437: "5",  # KP_Begin
+    65438: "0",  # KP_Insert
+    65439: ".",  # KP_Delete
     12: "$Unknown$",
 }
