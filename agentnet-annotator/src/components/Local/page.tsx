@@ -672,6 +672,17 @@ const Page = () => {
     }
     setIsDirty(true);
 
+    // Adjust activeStep after deletion
+    if (activeStep >= newEventsList.length) {
+      // If activeStep is now out of bounds, move to the last valid step
+      setActiveStep(Math.max(0, newEventsList.length - 1));
+    } else if (activeStep > index) {
+      // If we deleted a step before the active step, shift activeStep down
+      setActiveStep(activeStep - 1);
+    }
+    // If activeStep === index, it stays the same (viewing the next item at same position)
+    // If activeStep < index, it stays the same (deletion happened after current position)
+
     const saved = await persistRecordingChanges(newEventsList, {
       silent: true,
     });
