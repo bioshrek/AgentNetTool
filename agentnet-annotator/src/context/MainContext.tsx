@@ -17,6 +17,7 @@ import {
 } from "@mui/joy";
 import useSystemTheme from "./SystemTheme";
 import { SERVER_URL } from "../public/constant";
+import ResolutionErrorDialog from "../components/ResolutionError/ResolutionErrorDialog";
 
 interface tutorialProps {
     task_id: string | null;
@@ -213,6 +214,8 @@ export const MainProvider: React.FC<{ children: ReactNode }> = ({
     const [loading, setLoading] = useState(false);
     const [progressMsg, setProgressMsg] = useState("");
     const [os, setOs] = useState("");
+    const [showResolutionError, setShowResolutionError] = useState(false);
+    const [currentResolution, setCurrentResolution] = useState<string | undefined>(undefined);
     const fetchOS = async () => {
         window.electron.ipcRenderer.on("get_os_system_response", (os: any) => {
             setOs(os);
@@ -444,10 +447,22 @@ export const MainProvider: React.FC<{ children: ReactNode }> = ({
                 .catch((error) => {
                     console.error("Operation failed:", error.message);
                     window.electron.ipcRenderer.sendMessage("maximize-window");
-                    showError(error.message);
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 5000);
+                    
+                    // Check if error is about resolution
+                    const errorMsg = error.message || "";
+                    if (errorMsg.includes("Invalid screen resolution") || errorMsg.includes("resolution")) {
+                        // Extract resolution from error message if available
+                        const resolutionMatch = errorMsg.match(/(\d+)x(\d+)/);
+                        if (resolutionMatch) {
+                            setCurrentResolution(resolutionMatch[0]);
+                        }
+                        setShowResolutionError(true);
+                    } else {
+                        showError(error.message);
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 5000);
+                    }
                 });
         }
     };
@@ -589,6 +604,14 @@ export const MainProvider: React.FC<{ children: ReactNode }> = ({
             >
                 {message}
             </Snackbar>
+            <ResolutionErrorDialog
+                isOpen={showResolutionError}
+                onClose={() => {
+                    setShowResolutionError(false);
+                    setCurrentResolution(undefined);
+                }}
+                currentResolution={currentResolution}
+            />
             {/* {loading && (
                 <Box
                     position="fixed"

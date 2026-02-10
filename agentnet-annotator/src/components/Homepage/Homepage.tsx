@@ -6,6 +6,7 @@ import TaskHubModal from "../TaskHub/TaskHubModal";
 import { StopIcon } from "@heroicons/react/24/solid";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ResolutionErrorDialog from "../ResolutionError/ResolutionErrorDialog";
 
 export default function Homepage() {
     const [openSnackbar, setOpenSnackbar] = useState(false);
@@ -13,6 +14,8 @@ export default function Homepage() {
     const [message, setMessage] = useState("");
     const [severity, setSeverity] = useState("success");
     const [genWindowA11y, setGenWindowA11y] = useState(false);
+    const [showResolutionError, setShowResolutionError] = useState(false);
+    const [currentResolution, setCurrentResolution] = useState<string | undefined>(undefined);
     const {
         isRecording,
         setIsRecording,
@@ -84,12 +87,24 @@ export default function Homepage() {
                 })
                 .catch((error) => {
                     console.error("Operation failed:", error.message);
-                    showError(error.message);
+                    
+                    // Check if error is about resolution
+                    const errorMsg = error.message || "";
+                    if (errorMsg.includes("Invalid screen resolution") || errorMsg.includes("resolution")) {
+                        // Extract resolution from error message if available
+                        const resolutionMatch = errorMsg.match(/(\d+)x(\d+)/);
+                        if (resolutionMatch) {
+                            setCurrentResolution(resolutionMatch[0]);
+                        }
+                        setShowResolutionError(true);
+                    } else {
+                        showError(error.message);
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 3000);
+                    }
                     // 请求失败后也停止loading
                     setLoading(false);
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 3000);
                 });
             } else {
                 console.log("Stop Recording");
@@ -465,6 +480,14 @@ export default function Homepage() {
                 {message}
             </Snackbar>
             <TaskHubModal open={openTaskHub} onClose={handleCloseTaskHub} />
+            <ResolutionErrorDialog
+                isOpen={showResolutionError}
+                onClose={() => {
+                    setShowResolutionError(false);
+                    setCurrentResolution(undefined);
+                }}
+                currentResolution={currentResolution}
+            />
         </div>
     );
 }

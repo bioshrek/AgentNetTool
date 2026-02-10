@@ -59,12 +59,40 @@ class RecordingService:
         if check_and_stop_recording():
              logger.info("RecordingService: Stopped orphaned OBS recording on startup.")
 
+    def _validate_screen_resolution(self) -> Tuple[str, str]:
+        """Validate that screen resolution is 1920x1080."""
+        try:
+            width, height = pyautogui.size()
+            required_width = 1920
+            required_height = 1080
+            
+            if width != required_width or height != required_height:
+                error_msg = (
+                    f"Invalid screen resolution: {width}x{height}. "
+                    f"Required resolution is {required_width}x{required_height}. "
+                    f"Please adjust your display settings to {required_width}x{required_height} before starting the recording."
+                )
+                logger.warning(f"RecordingService: {error_msg}")
+                return FAILED, error_msg
+            
+            logger.info(f"RecordingService: Screen resolution validated: {width}x{height}")
+            return SUCCEED, "Resolution validated"
+        except Exception as e:
+            error_msg = f"Failed to check screen resolution: {str(e)}"
+            logger.exception(f"RecordingService: {error_msg}")
+            return FAILED, error_msg
+
     def start_recording(self, task_hub_data: Dict) -> Tuple[str, str]:
         """Start a new recording session."""
         logger.info("RecordingService: start_recording")
 
         if self.recorder_thread is not None:
             return FAILED, "Recording already in progress"
+
+        # Validate screen resolution before starting
+        validation_status, validation_message = self._validate_screen_resolution()
+        if validation_status == FAILED:
+            return FAILED, validation_message
 
         try:
             self.recorder_thread = Recorder(
