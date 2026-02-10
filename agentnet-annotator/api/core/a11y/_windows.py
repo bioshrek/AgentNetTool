@@ -14,12 +14,19 @@ import psutil
 import win32gui
 
 from ..logger import logger
-from screeninfo import get_monitors
 
 
-for monitor in get_monitors():
-    screenWidth = monitor.width
-    screenHeight = monitor.height
+def _get_screen_dimensions():
+    """Get fresh screen dimensions to avoid caching issues."""
+    try:
+        from ..screen_utils import get_fresh_screen_resolution
+        return get_fresh_screen_resolution()
+    except Exception:
+        # Fallback to screeninfo
+        from screeninfo import get_monitors
+        for monitor in get_monitors():
+            return monitor.width, monitor.height
+        return 1920, 1080  # Default fallback
 
 # GETTING TOP WINDOW NAME {{{ #
 

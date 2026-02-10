@@ -21,12 +21,18 @@ if system() == "Windows":
     from pywinauto.base_wrapper import BaseWrapper
     import pywinauto.application
     import threading
-    from screeninfo import get_monitors
 
-    for monitor in get_monitors():
-        screenWidth = monitor.width
-        screenHeight = monitor.height
-
+    def _get_screen_dimensions():
+        """Get fresh screen dimensions to avoid caching issues."""
+        try:
+            from ..screen_utils import get_fresh_screen_resolution
+            return get_fresh_screen_resolution()
+        except Exception:
+            # Fallback to screeninfo
+            from screeninfo import get_monitors
+            for monitor in get_monitors():
+                return monitor.width, monitor.height
+            return 1920, 1080  # Default fallback
 
 elif system() == "Darwin":
     import AppKit
@@ -73,7 +79,7 @@ MAX_CALLS = 5000
 def _create_pywinauto_node(
     node, nodes, depth: int = 0, flag: Optional[str] = None
 ) -> _Element:
-    global screenWidth, screenHeight
+    screenWidth, screenHeight = _get_screen_dimensions()
     nodes = nodes or set()
     if node in nodes:
         return
