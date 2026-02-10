@@ -66,6 +66,9 @@ class RecordingService:
             required_width = 1920
             required_height = 1080
             
+            # Always log the current screen size
+            logger.info(f"RecordingService: Current screen resolution detected: {width}x{height}")
+            
             if width != required_width or height != required_height:
                 error_msg = (
                     f"Invalid screen resolution: {width}x{height}. "
@@ -75,7 +78,7 @@ class RecordingService:
                 logger.warning(f"RecordingService: {error_msg}")
                 return FAILED, error_msg
             
-            logger.info(f"RecordingService: Screen resolution validated: {width}x{height}")
+            logger.info(f"RecordingService: Screen resolution validated successfully: {width}x{height}")
             return SUCCEED, "Resolution validated"
         except Exception as e:
             error_msg = f"Failed to check screen resolution: {str(e)}"
