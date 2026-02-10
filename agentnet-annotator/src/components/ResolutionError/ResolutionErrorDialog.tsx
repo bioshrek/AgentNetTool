@@ -84,7 +84,7 @@ const ResolutionErrorDialog: React.FC<ResolutionErrorDialogProps> = ({
                         </p>
                         <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
                           <li>
-                            客户端：请阅读文档https://my.feishu.cn/docx/Gz6AdsIiDoMM4FxXihpcx7cin8b
+                            客户端：请阅读文档 https://wcngz2jid6iw.feishu.cn/wiki/FMbXwcKFqiIUuKkErCpcgf1In6f#share-KCNTdH7ZqoFByNxAjSgcvRE4nhh
                             中设置分辨率章节
                           </li>
                           <li>
