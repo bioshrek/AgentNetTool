@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 from platform import uname
 
-from screeninfo import get_monitors
+from .logger import logger
+from .screen_utils import get_fresh_screen_resolution
 
 
 class MetadataManager:
@@ -18,9 +19,12 @@ class MetadataManager:
         if "node" in self.metadata:
             del self.metadata["node"]
 
-        main_monitor = get_monitors()[0]
-        self.metadata["screen_width"] = main_monitor.width
-        self.metadata["screen_height"] = main_monitor.height
+        # Get fresh (non-cached) screen resolution using platform-specific APIs
+        width, height = get_fresh_screen_resolution()
+        self.metadata["screen_width"] = width
+        self.metadata["screen_height"] = height
+        
+        logger.info(f"MetadataManager: Detected screen resolution: {width}x{height}")
 
         try:
             match self.metadata["system"]:

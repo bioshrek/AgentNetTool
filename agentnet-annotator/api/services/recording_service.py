@@ -13,6 +13,7 @@ from data_process.export import export_raw_to_vis_std
 from core.recorder import Recorder
 from core.action_reduction import Reducer
 from core.obs_client import OBSClient, is_obs_recording, check_and_stop_recording
+from core.screen_utils import get_fresh_screen_resolution
 from core.utils import (
     get_task_name_from_folder,
     get_description_from_folder,
@@ -62,12 +63,28 @@ class RecordingService:
     def _validate_screen_resolution(self) -> Tuple[str, str]:
         """Validate that screen resolution is 1920x1080."""
         try:
-            width, height = pyautogui.size()
+            # Get fresh screen resolution using platform-specific APIs
+            # to avoid caching issues with pyautogui/screeninfo
+            timestamp = time.time()
+            width, height = get_fresh_screen_resolution()
             required_width = 1920
             required_height = 1080
             
-            # Always log the current screen size
-            logger.info(f"RecordingService: Current screen resolution detected: {width}x{height}")
+            # Always log the current screen size with timestamp
+            logger.info(f"RecordingService: [timestamp={timestamp:.2f}] Fresh screen resolution detected: {width}x{height}")
+            logger.info(f"RecordingService: Required resolution: {required_width}x{required_height}")
+            
+            # Also compare with pyautogui to see if there's a discrepancy
+            try:
+                cached_size = pyautogui.size()
+                if (cached_size.width, cached_size.height) != (width, height):
+                    logger.warning(
+                        f"RecordingService: Resolution mismatch! "
+                        f"Fresh API: {width}x{height}, "
+                        f"pyautogui (possibly cached): {cached_size.width}x{cached_size.height}"
+                    )
+            except Exception:
+                pass
             
             if width != required_width or height != required_height:
                 error_msg = (
