@@ -148,11 +148,9 @@ class KeyFrameDetector:
             diff_ratio = changed_pixels / max(1000000, total_pixels)
             return diff_ratio
         elif system() == "Windows":
-            from screeninfo import get_monitors
+            from .screen_utils import get_fresh_screen_resolution
 
-            main_monitor = get_monitors()[0]
-            screen_width = main_monitor.width
-            screen_height = main_monitor.height
+            screen_width, screen_height = get_fresh_screen_resolution()
 
             screen_pixels = screen_width * screen_height
             diff_ratio = changed_pixels / max(1000000, screen_pixels)

@@ -123,7 +123,7 @@ class RecordingService:
             )
             recording_path = self.recorder_thread.recording_path
 
-            width, height = pyautogui.size()
+            width, height = get_fresh_screen_resolution()
             self.reducer = Reducer(
                 recording_path=recording_path,
                 window_attrs={"width": width, "height": height},
@@ -202,11 +202,11 @@ class RecordingService:
                 width = metadata.get("screen_width")
                 height = metadata.get("screen_height")
             else:
-                 width, height = pyautogui.size()
-                 logger.warning(f"Metadata not found for {recording_name}, using current screen size: {width}x{height}")
+                width, height = get_fresh_screen_resolution()
+                logger.warning(f"Metadata not found for {recording_name}, using current screen size: {width}x{height}")
         except Exception as e:
             logger.warning(f"Failed to load metadata for {recording_name}, using current screen size: {e}")
-            width, height = pyautogui.size()
+            width, height = get_fresh_screen_resolution()
             
         try:
             # Check for existing data files
