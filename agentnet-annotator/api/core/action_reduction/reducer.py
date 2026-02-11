@@ -401,12 +401,22 @@ class Reducer:
                                 self.active_actions.pop(key)
 
                             # Only add actions that started before the key was released
+                            # For Type actions, check that ALL keypresses occurred before release
                             release_time = event["time_stamp"]
                             children_to_add = []
                             for i in range(
                                 start_key_idx + 1, len(self.reduced_actions), 1
                             ):
-                                if self.reduced_actions[i].start_time < release_time:
+                                child = self.reduced_actions[i]
+                                # For Type actions, verify all individual keypresses occurred before release
+                                if child.action == "type" and hasattr(child, 'time_trace'):
+                                    # Check if all keypresses in the Type action happened before release
+                                    if all(t < release_time for t in child.time_trace):
+                                        children_to_add.append(i)
+                                    else:
+                                        # This Type action spans across the key release, stop here
+                                        break
+                                elif child.start_time < release_time:
                                     children_to_add.append(i)
                                 else:
                                     break
@@ -652,12 +662,27 @@ class Reducer:
                 and isinstance(action.children[0], Type)
             ):
                 # Check if all characters are uppercase letters or symbols that require shift
+                # Exclude special keys like tab, enter, etc.
                 type_child = action.children[0]
-                all_shifted_chars = all(
-                    len(char) == 1 and (char.isupper() or char in "!@#$%^&*()_+{}|:\"<>?~")
-                    for char in type_child.key_names
-                )
-                if all_shifted_chars:
+                special_keys = {"tab", "enter", "return", "escape", "space", "backspace", "delete"}
+                
+                has_only_shifted_chars = True
+                for key_name in type_child.key_names:
+                    # If it's a special key, this is not just capitalization
+                    if key_name.lower() in special_keys:
+                        has_only_shifted_chars = False
+                        break
+                    # If it's a single character that's not uppercase or a shift-symbol, not just capitalization
+                    if len(key_name) == 1:
+                        if not (key_name.isupper() or key_name in "!@#$%^&*()_+{}|:\"<>?~"):
+                            has_only_shifted_chars = False
+                            break
+                    else:
+                        # Multi-character key name that's not in special_keys
+                        has_only_shifted_chars = False
+                        break
+                
+                if has_only_shifted_chars and len(type_child.key_names) > 0:
                     # Replace the Press action with its Type child
                     type_child.vis = True  # Make it visible
                     type_child.start_time = action.start_time
