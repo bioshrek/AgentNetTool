@@ -400,16 +400,28 @@ class Reducer:
                             if key in self.active_actions:
                                 self.active_actions.pop(key)
 
+                            # Only add actions that started before the key was released
+                            release_time = event["time_stamp"]
+                            children_to_add = []
                             for i in range(
                                 start_key_idx + 1, len(self.reduced_actions), 1
                             ):
+                                if self.reduced_actions[i].start_time < release_time:
+                                    children_to_add.append(i)
+                                else:
+                                    break
+                            
+                            # Add children in order
+                            for i in children_to_add:
                                 self.reduced_actions[start_key_idx].add_child(
                                     self.reduced_actions[i]
                                 )
 
-                            del self.reduced_actions[
-                                start_key_idx + 1 : len(self.reduced_actions)
-                            ]
+                            # Delete only the actions that were added as children
+                            if children_to_add:
+                                del self.reduced_actions[
+                                    start_key_idx + 1 : children_to_add[-1] + 1
+                                ]
 
                         else:
                             # No matched start key
