@@ -336,6 +336,7 @@ class Reducer:
                 elif (
                     self.reduced_actions[-1].action == "press"
                     and self.reduced_actions[-1].is_typing()
+                    and not self.reduced_actions[-1].complete  # Don't append to completed Press actions
                 ):
                     self.reduced_actions[-1].children[0].append(Type(event))
                     self.reduced_actions[-1].transform()
