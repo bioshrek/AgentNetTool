@@ -636,10 +636,11 @@ class Reducer:
         if len(self.reduced_actions) > 0:
             self.reduced_actions[-1].transform()
 
-    def finish(self, save=False):
-        logger.error(f"finish {len(self.reduced_actions)}")
-        
-        # Convert shift+characters to just Type action when shift is only for capitalization
+    def convert_shift_typing(self):
+        """
+        Convert shift+characters to just Type action when shift is only for capitalization.
+        This must be called BEFORE transform() to avoid description conflicts.
+        """
         for i in range(len(self.reduced_actions)):
             action = self.reduced_actions[i]
             if (
@@ -662,8 +663,10 @@ class Reducer:
                     type_child.start_time = action.start_time
                     type_child.end_time = action.end_time
                     type_child.pre_move = action.pre_move
-                    type_child.transform()  # Transform it to set description
                     self.reduced_actions[i] = type_child
+
+    def finish(self, save=False):
+        logger.error(f"finish {len(self.reduced_actions)}")
         
         for action in self.reduced_actions:
             if action.action == "drag":
@@ -1091,6 +1094,7 @@ class Reducer:
 
             self.compress(events)
             self.reduce_all()
+            self.convert_shift_typing()  # Convert shift+uppercase to Type actions
             self.transform()
             self.finish()
 
