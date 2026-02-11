@@ -401,7 +401,7 @@ class Reducer:
                                 self.active_actions.pop(key)
 
                             # Only add actions that started before the key was released
-                            # For Type actions, check that ALL keypresses occurred before release
+                            # For Type actions that span across the release, split them
                             release_time = event["time_stamp"]
                             children_to_add = []
                             for i in range(
@@ -410,11 +410,53 @@ class Reducer:
                                 child = self.reduced_actions[i]
                                 # For Type actions, verify all individual keypresses occurred before release
                                 if child.action == "type" and hasattr(child, 'time_trace'):
-                                    # Check if all keypresses in the Type action happened before release
-                                    if all(t < release_time for t in child.time_trace):
+                                    # Find the split point: keypresses before vs after release
+                                    split_idx = None
+                                    for j, t in enumerate(child.time_trace):
+                                        if t >= release_time:
+                                            split_idx = j
+                                            break
+                                    
+                                    if split_idx is None:
+                                        # All keypresses happened before release
                                         children_to_add.append(i)
+                                    elif split_idx == 0:
+                                        # All keypresses happened after release, stop here
+                                        break
                                     else:
-                                        # This Type action spans across the key release, stop here
+                                        # Type action spans across the release - split it
+                                        # Create new Type action for the part that happened before release
+                                        before_keys = child.key_names[:split_idx]
+                                        before_times = child.time_trace[:split_idx]
+                                        after_keys = child.key_names[split_idx:]
+                                        after_times = child.time_trace[split_idx:]
+                                        
+                                        # Modify existing action to only contain keypresses after release
+                                        child.key_names = after_keys
+                                        child.time_trace = after_times
+                                        child.start_time = after_times[0]
+                                        child.end_time = after_times[-1] + 0.2
+                                        
+                                        # Create new action for keypresses before release
+                                        before_action = Type.__new__(Type)
+                                        before_action.action = "type"
+                                        before_action.key_names = before_keys
+                                        before_action.time_trace = before_times
+                                        before_action.start_time = before_times[0]
+                                        before_action.end_time = before_times[-1] + 0.2
+                                        before_action.event_start_idx = child.event_start_idx
+                                        before_action.complete = True
+                                        before_action.vis = False
+                                        before_action.exception = False
+                                        before_action.depth = 0
+                                        before_action.children = []
+                                        before_action.action_start_video_buffer_time = 0.5
+                                        before_action.action_end_video_buffer_time = 0.2
+                                        
+                                        # Insert the before action and add it as child
+                                        self.reduced_actions.insert(i, before_action)
+                                        children_to_add.append(i)
+                                        # After inserting, we need to stop as indices have shifted
                                         break
                                 elif child.start_time < release_time:
                                     children_to_add.append(i)
