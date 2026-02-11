@@ -662,6 +662,7 @@ class Reducer:
                     type_child.start_time = action.start_time
                     type_child.end_time = action.end_time
                     type_child.pre_move = action.pre_move
+                    type_child.transform()  # Transform it to set description
                     self.reduced_actions[i] = type_child
         
         for action in self.reduced_actions:
