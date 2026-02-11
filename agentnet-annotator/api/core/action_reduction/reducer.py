@@ -638,6 +638,32 @@ class Reducer:
 
     def finish(self, save=False):
         logger.error(f"finish {len(self.reduced_actions)}")
+        
+        # Convert shift+characters to just Type action when shift is only for capitalization
+        for i in range(len(self.reduced_actions)):
+            action = self.reduced_actions[i]
+            if (
+                action.action == "press" 
+                and action.key_name == "shift"
+                and action.complete
+                and action.children 
+                and len(action.children) == 1
+                and isinstance(action.children[0], Type)
+            ):
+                # Check if all characters are uppercase letters or symbols that require shift
+                type_child = action.children[0]
+                all_shifted_chars = all(
+                    len(char) == 1 and (char.isupper() or char in "!@#$%^&*()_+{}|:\"<>?~")
+                    for char in type_child.key_names
+                )
+                if all_shifted_chars:
+                    # Replace the Press action with its Type child
+                    type_child.vis = True  # Make it visible
+                    type_child.start_time = action.start_time
+                    type_child.end_time = action.end_time
+                    type_child.pre_move = action.pre_move
+                    self.reduced_actions[i] = type_child
+        
         for action in self.reduced_actions:
             if action.action == "drag":
                 action.drag_trace = action.children[0].trace
