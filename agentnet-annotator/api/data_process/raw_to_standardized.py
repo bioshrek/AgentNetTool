@@ -198,23 +198,6 @@ def reduce_content(episode_id, step_num, content):
                 second_last_item.instruction = second_last_item.instruction + " " + item.instruction
                 second_last_item.guiactions[-1].action_type = "doubleClick"
                 reduced_content.append(second_last_item)
-            elif (
-                isinstance(item, GUIAction)
-                and item.guiactions[0].action_type == "hotkey"
-                and len(item.guiactions[0].args["keys"]) == 1
-                and (item.guiactions[0].args["keys"][0] in ["shift", "ctrl"])
-            ):
-                # Only filter out shift and ctrl when pressed alone
-                # Keep cmd as it's used for system shortcuts like Spotlight (cmd alone)
-                if isinstance(reduced_content[-1], ImageObservation):
-                    reduced_content.pop()
-                elif isinstance(reduced_content[-1], TextObservation):
-                    task_instruction = reduced_content.pop()
-                    reduced_content.pop()
-                    reduced_content.append(content[index + 1])
-                    reduced_content.append(task_instruction)
-                    continue_flag = True
-                continue
             else:
                 if hasattr(item, "instruction"):
                     item.instruction = re.sub(r"\\u[0-9A-Fa-f]{4}", "", item.instruction)
