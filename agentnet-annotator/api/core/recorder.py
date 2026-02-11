@@ -8,6 +8,7 @@ from threading import Thread
 import uuid
 
 from pynput import keyboard, mouse
+from pynput.keyboard import Key
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .metadata import MetadataManager
@@ -146,6 +147,12 @@ class Recorder(QThread):
 
     def on_press(self, key):
         if not self._is_paused:
+            # Filter out spurious scroll_lock and num_lock events on Linux
+            # pynput incorrectly reports scroll_lock when typing underscores
+            # and num_lock when pressing shift for capitalization
+            if system() == "Linux" and key in (Key.scroll_lock, Key.num_lock):
+                return
+            
             self.event_queue.put(
                 {
                     "time_stamp": time.perf_counter(),
@@ -158,6 +165,12 @@ class Recorder(QThread):
 
     def on_release(self, key):
         if not self._is_paused:
+            # Filter out spurious scroll_lock and num_lock events on Linux
+            # pynput incorrectly reports scroll_lock when typing underscores
+            # and num_lock when pressing shift for capitalization
+            if system() == "Linux" and key in (Key.scroll_lock, Key.num_lock):
+                return
+            
             self.event_queue.put(
                 {
                     "time_stamp": time.perf_counter(),
