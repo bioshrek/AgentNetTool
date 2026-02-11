@@ -17,6 +17,39 @@ from data_process.schema.action import (
 from data_process.schema.action import ImageObservation, TextObservation
 from data_process.schema.trajectory import Trajectory
 
+# Copied from core.action_reduction.reduction_helper to avoid circular import dependencies
+# These are the authoritative key definitions used during recording
+# KEEP IN SYNC with core/action_reduction/reduction_helper.py
+MODIFIED_KEYS = {"alt", "alt_l", "alt_r", "alt_gr",'altleft', 'altright',
+                 "ctrl", "ctrl_l", "ctrl_r",'ctrlleft', 'ctrlright',
+                 "shift", "shift_l", "shift_r", 'shiftleft', 'shiftright',
+                 "cmd", "cmd_l", "cmd_r", 'command', 
+                 'fn', 'windows', 'win', 'winleft', 'winright', 'super', 'meta'}
+
+FUNCTIONAL_KEYS = {
+    'tab', 'space', 'enter', 'return', 'esc', 'escape', 'backspace','up', 'down', 'left', 'right', 
+    'caps', 'capslock', 'caps_lock', 'num_lock', 'numlock', 'clear', 'convert',  'decimal', 'del', 'delete', 'divide',  'end',
+    'insert', 'pagedown', 'pageup', 'pause', 'pgdn', 'pgup', 'print_screen', 'power', 'numpad_lock', 'scroll', 'scrolllock', 'scroll_lock',
+    'accept', 'add',  'apps', 'execute', 'playpause', 'prevtrack', 'print', 'printscreen', 'prntscrn',
+    'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9','f10', 'f11', 'f12', 'f13', 
+    'f14', 'f15', 'f16', 'f17', 'f18', 'f19', 'f20', 'f21', 'f22', 'f23', 'f24', 
+    'browserstop', 'browserforward', 'browserhome', 'browserrefresh', 'browsersearch', 'browserback', 'browserfavorites', 
+    'web', 'mail', 'calculator', 'computer', 'search', 'favorites',
+    'media_play_pause', 'media_volume_mute', 'media_volume_down', 'media_volume_up', 'media_next', 'media_previous',
+    'volumedown', 'volumemute', 'volumeup',  'yen', 'final',  'hanguel', 'hangul', 'hanja', 'help', 'home',  
+    'prtsc', 'prtscr', 'scrolllock', 'select', 'separator', 'sleep', 'stop', 'subtract',   
+    'option', 'optionleft', 'optionright','menu', 'break',
+    'numpad_divide', 'numpad_multiply', 'numpad_subtract', 'numpad_add', 'numpad_enter', 'numpad_decimal',
+    'junja', 'kana', 'kanji', 'launchapp1', 'launchapp2', 'launchmail', 
+    'ro', 'katakanahiragana', 'yen', 'henkan', 'muhenkan',
+    'num0', 'num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7', 'num8', 'num9', 
+    'launchmediaselect',  'modechange', 'multiply', 'nexttrack', 'nonconvert',
+    'context_menu', 'numpad_clear', 'numpad_equal', 'gamepad', 'fn_lock',
+    'lang1', 'lang2', 'attn', 'crsel', 'exsel', 'ereof', 'play', 'zoom', 'pa1', 'oem_clear',
+    'audio_mute', 'audio_vol_down', 'audio_vol_up', 'audio_play', 'audio_stop', 'audio_pause', 'audio_prev','audio_next',
+    'brightness_down', 'brightness_up', 'abnt_c1', 'abnt_c2', 'ax', 'numpad_comma', 'eject'
+}
+
 
 SCROLL_DIRECTION_MAP = {
     "\u2b07\ufe0f": "down",  # ⬇️
@@ -175,21 +208,42 @@ def reduce_content(episode_id, step_num, content):
             elif (
                 isinstance(item, GUIAction)
                 and len(item.guiactions) > 0
-                and item.guiactions[0].action_type == "write"
-                and isinstance(reduced_content[-2], GUIAction)
-                and reduced_content[-2].guiactions[-1].action_type == "write"
+                and item.guiactions[0].action_type == GUIActionType.WRITE
             ):
-                reduced_content.pop()
-                second_last_item = reduced_content.pop()
-                second_last_item.instruction = second_last_item.instruction + " " + item.instruction
-                second_last_item.guiactions.extend(item.guiactions)
-                second_last_item.guiactions = reduce_actions(second_last_item.guiactions)
-                reduced_content.append(second_last_item)
+                # Look for the most recent GUIAction with write, skipping over ImageObservations
+                last_write_idx = None
+                for i in range(len(reduced_content) - 1, -1, -1):
+                    if isinstance(reduced_content[i], GUIAction):
+                        # Check if the first action is WRITE (typing action)
+                        if reduced_content[i].guiactions and reduced_content[i].guiactions[0].action_type == GUIActionType.WRITE:
+                            last_write_idx = i
+                        break
+                    elif not isinstance(reduced_content[i], (ImageObservation, TextObservation)):
+                        # Stop if we hit something that's not an image or text observation
+                        break
+                
+                if last_write_idx is not None:
+                    # Merge: remove all items after last_write_idx (images and current item)
+                    items_to_remove = len(reduced_content) - last_write_idx - 1
+                    for _ in range(items_to_remove):
+                        reduced_content.pop()
+                    
+                    # Merge the write actions
+                    last_write_item = reduced_content.pop()
+                    last_write_item.instruction = last_write_item.instruction + " " + item.instruction
+                    last_write_item.guiactions.extend(item.guiactions)
+                    last_write_item.guiactions = reduce_actions(last_write_item.guiactions)
+                    reduced_content.append(last_write_item)
+                else:
+                    # No previous write action found, just add this one
+                    if hasattr(item, "instruction"):
+                        item.instruction = re.sub(r"\\u[0-9A-Fa-f]{4}", "", item.instruction)
+                    reduced_content.append(item)
             elif (
                 isinstance(item, GUIAction)
-                and item.guiactions[0].action_type == "click"
+                and item.guiactions[0].action_type == GUIActionType.CLICK
                 and isinstance(reduced_content[-2], GUIAction)
-                and reduced_content[-2].guiactions[-1].action_type == "click"
+                and reduced_content[-2].guiactions[-1].action_type == GUIActionType.CLICK
                 and item.guiactions[0].args["x"] == reduced_content[-2].guiactions[-1].args["x"]
                 and item.guiactions[0].args["y"] == reduced_content[-2].guiactions[-1].args["y"]
             ):
@@ -258,30 +312,45 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
         ]
     elif action_type == "write":
         whole = action.split("Type: ")[-1]
-        stack = []
-        current = ""
+        # Use the authoritative key definitions from the recording system
+        # Combine both MODIFIED_KEYS and FUNCTIONAL_KEYS to get all special keys
+        SPECIAL_KEYS = MODIFIED_KEYS | FUNCTIONAL_KEYS
+        
         contents = []
         actions = []
-        for char in whole:
-            if char == "$":
-                if stack and stack[-1] == "$":
-                    stack.pop()
-                    if current:
-                        contents.append(["keys", current])
-                        current = ""
+        i = 0
+        
+        while i < len(whole):
+            if whole[i] == "$":
+                # Look ahead to find the next $
+                j = i + 1
+                while j < len(whole) and whole[j] != "$":
+                    j += 1
+                
+                if j < len(whole):  # Found a closing $
+                    token = whole[i+1:j]
+                    # Check if this token is a special key
+                    if token.lower() in SPECIAL_KEYS or "caps_lock" in token:
+                        # This is a special key delimiter
+                        contents.append(["keys", token])
+                        i = j + 1  # Skip past the closing $
+                        continue
+                
+                # If we get here, either no closing $ found, or token is not a special key
+                # Treat this $ as literal text
+                if len(contents) > 0 and contents[-1][0] == "text":
+                    contents[-1][1] += "$"
                 else:
-                    if current:
-                        if "caps_lock" in current:
-                            current = process_caps_lock(current)
-                        contents.append(["text", current])
-                        current = ""
-                    stack.append("$")
+                    contents.append(["text", "$"])
+                i += 1
             else:
-                current += char
-        if current:
-            if "caps_lock" in current:
-                current = process_caps_lock(current)
-            contents.append(["text", current])
+                # Regular character
+                if len(contents) > 0 and contents[-1][0] == "text":
+                    contents[-1][1] += whole[i]
+                else:
+                    contents.append(["text", whole[i]])
+                i += 1
+        
         for content in contents:
             if content[0] == "keys":
                 actions.append(PyAutoGUIAction(action_type=GUIActionType.PRESS, target=None, args={"keys": [content[1]]}))
@@ -296,17 +365,58 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             raise ValueError(f"Unknown press action: {action} in episode:{episode_id}, step:{step_num}")
         if "+" in action:
             keys = action.split("Press: ")[1].split(" + ")
+        
+        # Use the authoritative key definitions from the recording system
+        # Combine both MODIFIED_KEYS and FUNCTIONAL_KEYS to get all special keys
+        SPECIAL_KEYS_PRESS = MODIFIED_KEYS | FUNCTIONAL_KEYS
+        
         for index in range(len(keys)):
             if keys[index].startswith("$") and keys[index].endswith("$") and keys[index].count("$") == 2:
                 keys[index] = keys[index].replace("$", "")
-            if "$" in keys[index]:
-                new_keys = keys[index]
-                new_keys = new_keys.split("$")
-                keys[index] = new_keys[0]
-                for new_index, new_key in enumerate(new_keys[1:]):
-                    if new_key == "":
-                        continue
-                    keys.insert(index + 1 + new_index, new_key)
+            elif "$" in keys[index]:
+                # Use smart parsing: only treat $TOKEN$ as delimiter if TOKEN is a special key
+                whole = keys[index]
+                parsed_keys = []
+                i = 0
+                current = ""
+                
+                while i < len(whole):
+                    if whole[i] == "$":
+                        # Look ahead to find the next $
+                        j = i + 1
+                        while j < len(whole) and whole[j] != "$":
+                            j += 1
+                        
+                        if j < len(whole):  # Found a closing $
+                            token = whole[i+1:j]
+                            # Check if this token is a special key
+                            if token.lower() in SPECIAL_KEYS_PRESS or "caps_lock" in token:
+                                # This is a special key delimiter - flush current and add the key
+                                if current:
+                                    parsed_keys.append(current)
+                                    current = ""
+                                parsed_keys.append(token)
+                                i = j + 1  # Skip past the closing $
+                                continue
+                        
+                        # If we get here, either no closing $ found, or token is not a special key
+                        # Treat this $ as literal text
+                        current += "$"
+                        i += 1
+                    else:
+                        # Regular character
+                        current += whole[i]
+                        i += 1
+                
+                if current:
+                    parsed_keys.append(current)
+                
+                # Replace the key at this index with parsed keys
+                if parsed_keys:
+                    keys[index] = parsed_keys[0]
+                    for new_index, new_key in enumerate(parsed_keys[1:]):
+                        keys.insert(index + 1 + new_index, new_key)
+        
         keys = [k for k in keys if k != ""]
 
         def extract_content(keys):
