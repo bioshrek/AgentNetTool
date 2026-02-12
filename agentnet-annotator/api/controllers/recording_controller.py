@@ -188,3 +188,20 @@ class RecordingController:
         self.recording_service.export_all_recordings(output_path)
         return ErrorHandler.create_success_response({"message": "Export started successfully"})
 
+    @handle_api_errors
+    def update_recording_name(self, recording_name: str) -> Tuple[Dict[str, Any], int]:
+        """Update recording task name."""
+        Validator.validate_recording_name(recording_name)
+        
+        if not request.json:
+            return ErrorHandler.create_error_response("No data provided", 400)
+        
+        data = request.json
+        new_task_name = data.get("task_name")
+        
+        if not new_task_name or not new_task_name.strip():
+            return ErrorHandler.create_error_response("Task name is required", 400)
+        
+        status, message = self.recording_service.update_recording_name(recording_name, new_task_name.strip())
+        return ErrorHandler.handle_service_response((status, message))
+

@@ -268,6 +268,8 @@ const Page = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const showRecordDetailActions = false;
+  const [isEditingTaskName, setIsEditingTaskName] = useState(false);
+  const [editedTaskName, setEditedTaskName] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [duration, setDuration] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -873,6 +875,71 @@ const Page = () => {
     }
   };
 
+  const handleTaskNameDoubleClick = () => {
+    setIsEditingTaskName(true);
+    setEditedTaskName(taskName);
+  };
+
+  const handleTaskNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditedTaskName(e.target.value);
+  };
+
+  const handleTaskNameSave = async () => {
+    if (!editedTaskName.trim()) {
+      showError("Task name cannot be empty");
+      setEditedTaskName(taskName);
+      setIsEditingTaskName(false);
+      return;
+    }
+
+    if (editedTaskName.trim() === taskName) {
+      setIsEditingTaskName(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `http://localhost:5328/api/recording/${recordingName}/update_name`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ task_name: editedTaskName.trim() }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setTaskName(editedTaskName.trim());
+        showSuccess("Task name updated successfully");
+        fetchTasks(); // Refresh the task list in sidebar
+      } else {
+        showError(result.error || "Failed to update task name");
+        setEditedTaskName(taskName);
+      }
+    } catch (error) {
+      showError("Network error or server is down.");
+      setEditedTaskName(taskName);
+    } finally {
+      setIsEditingTaskName(false);
+    }
+  };
+
+  const handleTaskNameBlur = () => {
+    handleTaskNameSave();
+  };
+
+  const handleTaskNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleTaskNameSave();
+    } else if (e.key === "Escape") {
+      setEditedTaskName(taskName);
+      setIsEditingTaskName(false);
+    }
+  };
+
   const onSave = async () => {
     const saved = await handleConfirmRecording();
     if (saved) {
@@ -1261,9 +1328,36 @@ const Page = () => {
             alignItems: "flex-start",
           }}
         >
-          <Typography level="h2" component="h1">
-            {taskName}
-          </Typography>
+          {isEditingTaskName ? (
+            <input
+              type="text"
+              value={editedTaskName}
+              onChange={handleTaskNameChange}
+              onBlur={handleTaskNameBlur}
+              onKeyDown={handleTaskNameKeyDown}
+              autoFocus
+              className="text-2xl font-bold border-2 border-indigo-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:bg-gray-800 dark:text-white"
+              style={{ minWidth: "300px" }}
+            />
+          ) : (
+            <Typography 
+              level="h2" 
+              component="h1"
+              onDoubleClick={handleTaskNameDoubleClick}
+              sx={{ 
+                cursor: "pointer",
+                "&:hover": {
+                  backgroundColor: "rgba(99, 102, 241, 0.1)",
+                  borderRadius: "4px",
+                  padding: "2px 8px",
+                  margin: "-2px -8px",
+                }
+              }}
+              title="Double-click to edit"
+            >
+              {taskName}
+            </Typography>
+          )}
 
           <Typography
             level="h3"

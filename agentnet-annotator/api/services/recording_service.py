@@ -686,3 +686,31 @@ class RecordingService:
             logger.error(f"Export failed: {str(e)}")
             raise Exception(f"Export failed: {str(e)}")
 
+    def update_recording_name(self, recording_name: str, new_task_name: str) -> Tuple[str, str]:
+        """Update the task name for a recording."""
+        try:
+            recording_path = os.path.join(RECORDING_DIR, recording_name)
+            task_name_path = os.path.join(recording_path, "task_name.json")
+            
+            if not os.path.exists(recording_path):
+                return FAILED, f"Recording {recording_name} not found"
+            
+            # Read existing task data or create new
+            if os.path.exists(task_name_path):
+                task_data = read_encrypted_json(task_name_path)
+            else:
+                task_data = {"task_name": "", "description": ""}
+            
+            # Update task name
+            task_data["task_name"] = new_task_name
+            
+            # Write back to file
+            write_encrypted_json(task_name_path, task_data)
+            
+            logger.info(f"Updated task name for recording {recording_name} to: {new_task_name}")
+            return SUCCEED, f"Task name updated successfully"
+            
+        except Exception as e:
+            logger.error(f"Failed to update task name for recording {recording_name}: {str(e)}")
+            return FAILED, f"Failed to update task name: {str(e)}"
+
