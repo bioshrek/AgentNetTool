@@ -157,6 +157,11 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
   const [contextMenuAnchor, setContextMenuAnchor] =
     useState<null | HTMLElement>(null);
   const [contextMenuRecording, setContextMenuRecording] = useState<string>("");
+  
+  // Editing state for inline name editing
+  const [editingRecordingName, setEditingRecordingName] = useState<string | null>(null);
+  const [editingNewName, setEditingNewName] = useState<string>("");
+  const editInputRef = React.useRef<HTMLInputElement>(null);
 
   // Missing state variables for verify tasks and UI
   const [toVerifyTasksList, setToVerifyTasksList] = useState(allVerifyTasks);
@@ -403,8 +408,77 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
     setContextMenuRecording("");
   };
 
+  // Handle double-click to enter edit mode
+  const handleDoubleClickName = (recording: localRecordingProp) => {
+    if (recording.visualizable && recording.status !== "processing") {
+      setEditingRecordingName(recording.name);
+      setEditingNewName(recording.task_name);
+    }
+  };
+
+  // Handle save of edited name
+  const handleSaveEdit = async (recordingName: string) => {
+    const recording = notUploadedTasksList.find(r => r.name === recordingName);
+    if (!recording || !editingNewName.trim() || editingNewName === recording.task_name) {
+      // If name is empty or unchanged, just cancel
+      setEditingRecordingName(null);
+      setEditingNewName("");
+      return;
+    }
+
+    try {
+      // Use the /cut endpoint with full range to just update the name
+      // This is the same approach used in Local/page.tsx for saving task names
+      const response = await fetch(
+        `http://localhost:5328/api/recording/${recordingName}/cut`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            cutTaskName: editingNewName,
+            cutDescription: "",
+            valMin: 1,
+            valMax: 999999, // Large number to ensure it matches full range
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showSuccess("Recording name updated successfully");
+        fetchTasks(); // Refresh the list
+      } else {
+        showError(result.error || "Failed to update recording name");
+      }
+    } catch (error) {
+      showError("Network error or server is down.");
+    } finally {
+      setEditingRecordingName(null);
+      setEditingNewName("");
+    }
+  };
+
+  // Handle cancel editing
+  const handleCancelEdit = () => {
+    setEditingRecordingName(null);
+    setEditingNewName("");
+  };
+
+  // Focus the input when entering edit mode
+  useEffect(() => {
+    if (editingRecordingName && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingRecordingName]);
+
   // Helper function to render a recording item
   const renderRecordingItem = (recording: localRecordingProp) => {
+    const isEditing = editingRecordingName === recording.name;
+    
     return (
       <ListItem
         key={recording.name}
@@ -423,7 +497,7 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
           setVisibleNotUploadedIconIndex(null);
         }}
       >
-        <Tooltip arrow size="md" title={recording.task_name} placement="right">
+        <Tooltip arrow size="md" title={recording.task_name} placement="right" disableInteractive={isEditing}>
           <ListItemButton
             className="flex flex-row justify-between w-full"
             onContextMenu={(e) => handleContextMenu(e, recording.name)}
@@ -448,21 +522,63 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
                 <p className="text-[10px] text-gray-400">Processing...</p>
               </div>
             ) : recording.visualizable ? (
-              <Link
-                to={`tasks/${recording.name}`}
-                style={{
-                  maxWidth: "70%",
-                }}
-              >
-                <div className="flex flex-col gap-0">
-                  <p className="text-sm font-semibold text-black dark:text-white truncate">
-                    {recording.task_name}
-                  </p>
+              isEditing ? (
+                <div
+                  style={{
+                    maxWidth: "70%",
+                  }}
+                  className="flex flex-col gap-0"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <Input
+                    ref={editInputRef}
+                    value={editingNewName}
+                    onChange={(e) => setEditingNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSaveEdit(recording.name);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        handleCancelEdit();
+                      }
+                    }}
+                    onBlur={() => handleSaveEdit(recording.name)}
+                    size="sm"
+                    sx={{ 
+                      fontSize: "0.875rem",
+                      padding: "2px 4px",
+                      minHeight: "auto"
+                    }}
+                  />
                   <p className="text-[10px] text-zinc-600 dark:text-zinc-400">
                     {recording.creation_time}
                   </p>
                 </div>
-              </Link>
+              ) : (
+                <Link
+                  to={`tasks/${recording.name}`}
+                  style={{
+                    maxWidth: "70%",
+                  }}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    handleDoubleClickName(recording);
+                  }}
+                >
+                  <div className="flex flex-col gap-0">
+                    <p className="text-sm font-semibold text-black dark:text-white truncate">
+                      {recording.task_name}
+                    </p>
+                    <p className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                      {recording.creation_time}
+                    </p>
+                  </div>
+                </Link>
+              )
             ) : (
               <div
                 style={{
