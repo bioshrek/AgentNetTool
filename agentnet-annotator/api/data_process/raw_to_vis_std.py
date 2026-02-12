@@ -146,34 +146,8 @@ def process_trajectory(traj_data, output_path, source_path=None, raw_events=None
                                     i += 1
                                     continue
                                 
-                                # Check if this is a moveTo followed by dragTo - merge into drag
-                                if (action.action_type == GUIActionType.MOVE_TO and 
-                                    i + 1 < len(pyautogui_actions) and 
-                                    pyautogui_actions[i + 1].action_type == GUIActionType.DRAG_TO):
-                                    move_action = action
-                                    drag_action = pyautogui_actions[i + 1]
-                                    
-                                    # Get start position from moveTo
-                                    start_x = move_action.args.get('x', 0)
-                                    start_y = move_action.args.get('y', 0)
-                                    
-                                    # Get end position from dragTo
-                                    end_x = drag_action.args.get('x', start_x)
-                                    end_y = drag_action.args.get('y', start_y)
-                                    
-                                    # Create merged drag action
-                                    merged_drag = PyAutoGUIAction(
-                                        action_type=GUIActionType.DRAG_TO,
-                                        args={
-                                            'from_coord': [start_x, start_y],
-                                            'to_coord': [end_x, end_y],
-                                            'button': drag_action.args.get('button', 'left')
-                                        }
-                                    )
-                                    codes.append(merged_drag.to_command())
-                                    i += 2
-                                    continue
-                                
+                                # For drag actions, keep moveTo and dragTo separate
+                                # This exports them as "moveTo A, then dragTo B"
                                 codes.append(action.to_command())
                                 i += 1
                             
