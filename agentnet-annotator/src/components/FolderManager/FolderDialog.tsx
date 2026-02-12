@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Modal,
   ModalDialog,
@@ -39,10 +39,17 @@ export default function FolderDialog({
   onFolderChange,
   recordingNames = [],
 }: FolderDialogProps) {
-  const [folders, setFolders] = useState<Folder[]>(folderManager.getFolders());
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+
+  // Refresh folders when dialog opens
+  useEffect(() => {
+    if (open) {
+      setFolders(folderManager.getFolders());
+    }
+  }, [open]);
 
   const refreshFolders = () => {
     setFolders(folderManager.getFolders());
