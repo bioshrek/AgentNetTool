@@ -30,4 +30,7 @@ contextBridge.exposeInMainWorld("electron", {
     ipcRenderer.send("update-tray-icon", iconPath),
   updateTrayTitle: (title: string) =>
     ipcRenderer.send("update-tray-title", title),
+  // Folder storage APIs
+  saveFolderData: (data: any) => ipcRenderer.invoke("folder:save", data),
+  loadFolderData: () => ipcRenderer.invoke("folder:load"),
 });

@@ -21,6 +21,9 @@ import { createTray, StartRecording, StopRecording, updateTrayIcon } from "./tra
 
 const log = require("electron-log");
 
+// Log user data path for debugging storage location
+log.info(`Electron userData path: ${app.getPath('userData')}`);
+
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
@@ -38,6 +41,38 @@ ipcMain.handle("dialog:openDirectory", async (event, options = {}) => {
     return undefined;
   }
   return result.filePaths[0];
+});
+
+// Folder storage handlers
+const FOLDER_DATA_FILE = path.join(app.getPath('home'), '.config', 'vis', 'folder-structure.json');
+
+ipcMain.handle("folder:save", async (event, data) => {
+  try {
+    const folderDir = path.dirname(FOLDER_DATA_FILE);
+    if (!fs.existsSync(folderDir)) {
+      fs.mkdirSync(folderDir, { recursive: true });
+    }
+    fs.writeFileSync(FOLDER_DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    log.info(`Folder data saved to: ${FOLDER_DATA_FILE}`);
+    return { success: true };
+  } catch (error) {
+    log.error('Error saving folder data:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("folder:load", async () => {
+  try {
+    if (fs.existsSync(FOLDER_DATA_FILE)) {
+      const data = fs.readFileSync(FOLDER_DATA_FILE, 'utf-8');
+      log.info(`Folder data loaded from: ${FOLDER_DATA_FILE}`);
+      return JSON.parse(data);
+    }
+    return null;
+  } catch (error) {
+    log.error('Error loading folder data:', error);
+    return null;
+  }
 });
 
 let tray: Tray | null = null;

@@ -16,9 +16,6 @@ import {
   LinearProgress,
   CircularProgress,
   IconButton,
-  Menu,
-  MenuItem,
-  ListItemDecorator,
 } from "@mui/joy";
 import { listItemButtonClasses } from "@mui/joy/ListItemButton";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -36,7 +33,6 @@ import FolderIcon from "@mui/icons-material/Folder";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { useEffect, useState } from "react";
 import ColorSchemeToggle from "./utils/ColorSchemeToggle";
 import { useNavigate, Link, useParams } from "react-router-dom";
@@ -177,6 +173,15 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
   const user_idRef = React.useRef(user_id);
   const usernameRef = React.useRef(username);
   const LinearProgressRef = React.useRef<HTMLDivElement>(null);
+
+  // Initialize folder manager on mount
+  useEffect(() => {
+    const initFolders = async () => {
+      await folderManager.initialize();
+      setFolders(folderManager.getFolders());
+    };
+    initFolders();
+  }, []);
 
   useEffect(() => {
     setToVerifyTasksList(allVerifyTasks);

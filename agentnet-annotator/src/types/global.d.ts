@@ -18,6 +18,8 @@ declare global {
       openDirectoryDialog: (options?: any) => Promise<string | undefined>;
       updateTrayIcon: (iconPath: string) => void;
       updateTrayTitle: (title: string) => void;
+      saveFolderData: (data: any) => Promise<{ success: boolean; error?: string }>;
+      loadFolderData: () => Promise<any>;
     };
   }
 }

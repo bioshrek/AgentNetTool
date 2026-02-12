@@ -1,6 +1,6 @@
 /**
  * Folder Manager - Manages local record organization with 1-tier folders
- * Data is stored in localStorage
+ * Data is stored in Documents/AgentNet/folder-structure.json
  */
 
 export interface Folder {
@@ -14,59 +14,85 @@ export interface RecordingFolderMapping {
     [recordingName: string]: string; // recordingName -> folderId (empty string for uncategorized)
 }
 
-const FOLDERS_KEY = 'agentnet_folders';
-const MAPPING_KEY = 'agentnet_recording_folder_mapping';
+interface FolderData {
+    folders: Folder[];
+    mapping: RecordingFolderMapping;
+}
+
 const DEFAULT_FOLDER_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 class FolderManager {
     private folders: Folder[] = [];
     private mapping: RecordingFolderMapping = {};
+    private initialized = false;
 
     constructor() {
-        this.loadFromStorage();
+        // Load will be called async
     }
 
     /**
-     * Load folders and mappings from localStorage
+     * Initialize and load folders from file system
      */
-    private loadFromStorage(): void {
+    async initialize(): Promise<void> {
+        if (this.initialized) return;
+        
         try {
-            const foldersData = localStorage.getItem(FOLDERS_KEY);
-            const mappingData = localStorage.getItem(MAPPING_KEY);
-
-            if (foldersData) {
-                this.folders = JSON.parse(foldersData);
-            }
-
-            if (mappingData) {
-                this.mapping = JSON.parse(mappingData);
+            const data = await window.electron.loadFolderData();
+            if (data) {
+                this.folders = data.folders || [];
+                this.mapping = data.mapping || {};
+                console.log('Folder data loaded from Documents/AgentNet/folder-structure.json');
+            } else {
+                // Try to migrate from localStorage if exists
+                await this.migrateFromLocalStorage();
             }
         } catch (error) {
-            console.error('Error loading folder data from storage:', error);
-            this.folders = [];
-            this.mapping = {};
+            console.error('Error loading folder data from file:', error);
+            // Try localStorage as fallback
+            await this.migrateFromLocalStorage();
+        }
+        
+        this.initialized = true;
+    }
+
+    /**
+     * Migrate data from localStorage to file system (one-time migration)
+     */
+    private async migrateFromLocalStorage(): Promise<void> {
+        try {
+            const foldersData = localStorage.getItem('agentnet_folders');
+            const mappingData = localStorage.getItem('agentnet_recording_folder_mapping');
+
+            if (foldersData || mappingData) {
+                this.folders = foldersData ? JSON.parse(foldersData) : [];
+                this.mapping = mappingData ? JSON.parse(mappingData) : {};
+                
+                // Save to file system
+                await this.save();
+                
+                // Clear localStorage after successful migration
+                localStorage.removeItem('agentnet_folders');
+                localStorage.removeItem('agentnet_recording_folder_mapping');
+                
+                console.log('Migrated folder data from localStorage to file system');
+            }
+        } catch (error) {
+            console.error('Error migrating from localStorage:', error);
         }
     }
 
     /**
-     * Save folders to localStorage
+     * Save folders and mappings to file system
      */
-    private saveFolders(): void {
+    private async save(): Promise<void> {
         try {
-            localStorage.setItem(FOLDERS_KEY, JSON.stringify(this.folders));
+            const data: FolderData = {
+                folders: this.folders,
+                mapping: this.mapping
+            };
+            await window.electron.saveFolderData(data);
         } catch (error) {
-            console.error('Error saving folders to storage:', error);
-        }
-    }
-
-    /**
-     * Save mappings to localStorage
-     */
-    private saveMapping(): void {
-        try {
-            localStorage.setItem(MAPPING_KEY, JSON.stringify(this.mapping));
-        } catch (error) {
-            console.error('Error saving mapping to storage:', error);
+            console.error('Error saving folder data to file:', error);
         }
     }
 
@@ -96,7 +122,7 @@ class FolderManager {
         };
 
         this.folders.push(folder);
-        this.saveFolders();
+        this.save();
         return folder;
     }
 
@@ -110,7 +136,7 @@ class FolderManager {
         }
 
         folder.name = newName.trim();
-        this.saveFolders();
+        this.save();
         return true;
     }
 
@@ -131,8 +157,7 @@ class FolderManager {
         });
 
         this.folders.splice(index, 1);
-        this.saveFolders();
-        this.saveMapping();
+        this.save();
         return true;
     }
 
@@ -153,7 +178,7 @@ class FolderManager {
         }
 
         this.mapping[recordingName] = folderId;
-        this.saveMapping();
+        this.save();
         return true;
     }
 
@@ -188,7 +213,7 @@ class FolderManager {
         });
 
         if (changed) {
-            this.saveMapping();
+            this.save();
         }
     }
 
@@ -220,14 +245,13 @@ class FolderManager {
     /**
      * Import folder structure from backup
      */
-    importFolderStructure(jsonString: string): boolean {
+    async importFolderStructure(jsonString: string): Promise<boolean> {
         try {
             const data = JSON.parse(jsonString);
             if (data.folders && data.mapping) {
                 this.folders = data.folders;
                 this.mapping = data.mapping;
-                this.saveFolders();
-                this.saveMapping();
+                await this.save();
                 return true;
             }
             return false;
