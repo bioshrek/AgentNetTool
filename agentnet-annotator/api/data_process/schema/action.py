@@ -222,15 +222,23 @@ class PyAutoGUIAction(BaseModel):
             return f"pyautogui.doubleClick({int(x)}, {int(y)})"
         
         elif self.action_type == GUIActionType.DRAG_TO:
-            # pyautogui.drag(start=[x1, y1], end=[x2, y2], button='left')
-            from_coord = self.args.get('from_coord', [0, 0])
-            to_coord = self.args.get('to_coord', [0, 0])
-            button = self.args.get('button', 'left')
-            if isinstance(from_coord, tuple):
-                from_coord = list(from_coord)
-            if isinstance(to_coord, tuple):
-                to_coord = list(to_coord)
-            return f"pyautogui.drag(start={[int(from_coord[0]), int(from_coord[1])]}, end={[int(to_coord[0]), int(to_coord[1])]}, button='{button}')"
+            # Check if this is a standalone dragTo (with x, y) or merged drag (with from_coord, to_coord)
+            if 'x' in self.args and 'y' in self.args:
+                # Standalone dragTo: pyautogui.dragTo(x, y, button='left')
+                x = self.args.get('x', 0)
+                y = self.args.get('y', 0)
+                button = self.args.get('button', 'left')
+                return f"pyautogui.dragTo({int(x)}, {int(y)}, button='{button}')"
+            else:
+                # Merged drag: pyautogui.drag(start=[x1, y1], end=[x2, y2], button='left')
+                from_coord = self.args.get('from_coord', [0, 0])
+                to_coord = self.args.get('to_coord', [0, 0])
+                button = self.args.get('button', 'left')
+                if isinstance(from_coord, tuple):
+                    from_coord = list(from_coord)
+                if isinstance(to_coord, tuple):
+                    to_coord = list(to_coord)
+                return f"pyautogui.drag(start={[int(from_coord[0]), int(from_coord[1])]}, end={[int(to_coord[0]), int(to_coord[1])]}, button='{button}')"
         
         elif self.action_type == GUIActionType.SCROLL:
             # pyautogui.scroll(amount)
