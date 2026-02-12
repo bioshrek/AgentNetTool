@@ -48,6 +48,7 @@ import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import CreateIcon from "@mui/icons-material/Create";
 import DeleteIcon from "@mui/icons-material/Delete";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import EditIcon from "@mui/icons-material/Edit";
 import Check from "@mui/icons-material/Check";
 import { default as _ReactPlayer } from "react-player/lazy";
 import { ReactPlayerProps } from "react-player/types/lib";
@@ -845,7 +846,8 @@ const Page = () => {
       }
     } catch (error) {
       console.error(error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       showError(`Error exporting recording: ${errorMessage}`);
     } finally {
       setIsExporting(false);
@@ -880,6 +882,11 @@ const Page = () => {
     setEditedTaskName(taskName);
   };
 
+  const handleEditIconClick = () => {
+    setIsEditingTaskName(true);
+    setEditedTaskName(taskName);
+  };
+
   const handleTaskNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setEditedTaskName(e.target.value);
   };
@@ -906,7 +913,7 @@ const Page = () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ task_name: editedTaskName.trim() }),
-        }
+        },
       );
 
       const result = await response.json();
@@ -1329,34 +1336,62 @@ const Page = () => {
           }}
         >
           {isEditingTaskName ? (
-            <input
-              type="text"
-              value={editedTaskName}
-              onChange={handleTaskNameChange}
-              onBlur={handleTaskNameBlur}
-              onKeyDown={handleTaskNameKeyDown}
-              autoFocus
-              className="text-2xl font-bold border-2 border-indigo-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:bg-gray-800 dark:text-white"
-              style={{ minWidth: "300px" }}
-            />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <input
+                type="text"
+                value={editedTaskName}
+                onChange={handleTaskNameChange}
+                onBlur={handleTaskNameBlur}
+                onKeyDown={handleTaskNameKeyDown}
+                autoFocus
+                className="text-2xl font-bold border-2 border-indigo-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:bg-gray-800 dark:text-white"
+                style={{ minWidth: "300px" }}
+              />
+              <Button
+                size="sm"
+                variant="solid"
+                color="primary"
+                onClick={handleTaskNameSave}
+                sx={{
+                  minWidth: "60px",
+                  height: "36px",
+                }}
+              >
+                OK
+              </Button>
+            </Box>
           ) : (
-            <Typography 
-              level="h2" 
-              component="h1"
-              onDoubleClick={handleTaskNameDoubleClick}
-              sx={{ 
-                cursor: "pointer",
-                "&:hover": {
-                  backgroundColor: "rgba(99, 102, 241, 0.1)",
-                  borderRadius: "4px",
-                  padding: "2px 8px",
-                  margin: "-2px -8px",
-                }
-              }}
-              title="Double-click to edit"
-            >
-              {taskName}
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography
+                level="h2"
+                component="h1"
+                onDoubleClick={handleTaskNameDoubleClick}
+                sx={{
+                  cursor: "pointer",
+                  "&:hover": {
+                    backgroundColor: "rgba(99, 102, 241, 0.1)",
+                    borderRadius: "4px",
+                    padding: "2px 8px",
+                    margin: "-2px -8px",
+                  },
+                }}
+                title="Double-click to edit"
+              >
+                {taskName}
+              </Typography>
+              <EditIcon
+                onClick={handleEditIconClick}
+                sx={{
+                  cursor: "pointer",
+                  color: "#6366f1",
+                  fontSize: "1.5rem",
+                  "&:hover": {
+                    color: "#4f46e5",
+                  },
+                }}
+                titleAccess="Click to edit task name"
+              />
+            </Box>
           )}
 
           <Typography
