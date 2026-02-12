@@ -146,7 +146,7 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
   const showSidebarDeleteActions = false;
 
   // Folder management state
-  const [folders, setFolders] = useState<Folder[]>(folderManager.getFolders());
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [selectedRecordingForMove, setSelectedRecordingForMove] =
