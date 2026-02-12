@@ -591,9 +591,9 @@ export default function Sidebar({ tasks, init_open }: SidebarProps) {
       <GlobalStyles
         styles={(theme) => ({
           ":root": {
-            "--Sidebar-width": open ? "20vw" : "5vw",
+            "--Sidebar-width": open ? "25vw" : "5vw",
             [theme.breakpoints.up("lg")]: {
-              "--Sidebar-width": open ? "240px" : "64px",
+              "--Sidebar-width": open ? "300px" : "64px",
             },
           },
         })}
