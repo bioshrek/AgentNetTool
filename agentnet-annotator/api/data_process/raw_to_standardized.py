@@ -79,12 +79,12 @@ def preprocess_events(events):
         elif (
             item["action"] == "drag"
             and events[index + 1]["action"] == "type"
-            and ("Type: c" in events[index + 1]["description"] or "Type: v" in events[index + 1]["description"])
+            and events[index + 1]["description"] in ["Type: c", "Type: C", "Type: v", "Type: V"]
         ):
             events[index + 1]["action"] = "press"
-            if "Type: c" in events[index + 1]["description"]:
+            if events[index + 1]["description"] in ["Type: c", "Type: C"]:
                 events[index + 1]["description"] = "Press: $cmd$ + c"
-            elif "Type: v" in events[index + 1]["description"]:
+            elif events[index + 1]["description"] in ["Type: v", "Type: V"]:
                 events[index + 1]["description"] = "Press: $cmd$ + v"
     return events
 
@@ -288,6 +288,11 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
                 break
             positions.append(pos)
             start = pos + len("caps_lock")
+        
+        # If no caps_lock markers found, return as is
+        if not positions:
+            return string
+        
         content = string[: positions[0]]
         for index, pos in enumerate(positions):
             if index % 2 == 0 and index + 1 < len(positions):
@@ -341,10 +346,18 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
                 
                 if j < len(whole):  # Found a closing $
                     token = whole[i+1:j]
-                    # Check if this token is a special key
-                    if token.lower() in SPECIAL_KEYS or "caps_lock" in token:
+                    # Check if this token is a special key (but NOT caps_lock, which is a text modifier)
+                    if token.lower() in SPECIAL_KEYS and "caps_lock" not in token:
                         # This is a special key delimiter
                         contents.append(["keys", token])
+                        i = j + 1  # Skip past the closing $
+                        continue
+                    elif "caps_lock" in token:
+                        # caps_lock is a text modifier marker, not a key - treat as text
+                        if len(contents) > 0 and contents[-1][0] == "text":
+                            contents[-1][1] += "$" + token + "$"
+                        else:
+                            contents.append(["text", "$" + token + "$"])
                         i = j + 1  # Skip past the closing $
                         continue
                 
@@ -367,7 +380,11 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
             if content[0] == "keys":
                 actions.append(PyAutoGUIAction(action_type=GUIActionType.PRESS, target=None, args={"keys": [content[1]]}))
             else:
-                actions.append(PyAutoGUIAction(action_type=GUIActionType.WRITE, target=None, args={"message": content[1]}))
+                # Process caps_lock markers in text content
+                text = content[1]
+                if "caps_lock" in text:
+                    text = process_caps_lock(text)
+                actions.append(PyAutoGUIAction(action_type=GUIActionType.WRITE, target=None, args={"message": text}))
         actionlist = actions
     elif action_type == "press":
         action = action.replace("\n", "")
