@@ -247,11 +247,23 @@ def reduce_content(episode_id, step_num, content):
                 and item.guiactions[0].args["x"] == reduced_content[-2].guiactions[-1].args["x"]
                 and item.guiactions[0].args["y"] == reduced_content[-2].guiactions[-1].args["y"]
             ):
-                reduced_content.pop()
-                second_last_item = reduced_content.pop()
-                second_last_item.instruction = second_last_item.instruction + " " + item.instruction
-                second_last_item.guiactions[-1].action_type = "doubleClick"
-                reduced_content.append(second_last_item)
+                # Check time interval - only merge into double-click if <= 500ms apart
+                time_diff = None
+                if item.start_time is not None and reduced_content[-2].end_time is not None:
+                    time_diff = item.start_time - reduced_content[-2].end_time
+                
+                # Only convert to double-click if time difference is small enough (500ms threshold)
+                if time_diff is None or time_diff <= 0.5:
+                    reduced_content.pop()
+                    second_last_item = reduced_content.pop()
+                    second_last_item.instruction = second_last_item.instruction + " " + item.instruction
+                    second_last_item.guiactions[-1].action_type = "doubleClick"
+                    reduced_content.append(second_last_item)
+                else:
+                    # Keep as separate clicks if time difference is too large
+                    if hasattr(item, "instruction"):
+                        item.instruction = re.sub(r"\\u[0-9A-Fa-f]{4}", "", item.instruction)
+                    reduced_content.append(item)
             else:
                 if hasattr(item, "instruction"):
                     item.instruction = re.sub(r"\\u[0-9A-Fa-f]{4}", "", item.instruction)
@@ -731,13 +743,15 @@ def convert_examples(sample_raw):
                     print(f"Error in {episode_id}, step {i}: Empty description field")
                     break
                 trace = item["events"][i].get("trace")
+                start_time = item["events"][i].get("start_time")
+                end_time = item["events"][i].get("end_time")
             except Exception as e:
                 print(f"Error in {episode_id}, step {i}: Failed to extract event fields: {type(e).__name__}: {e}")
                 break
                 
             try:
                 actions = build_actions(episode_id, i, rawaction, img_size, trace)
-                content.append(GUIAction(instruction=instruction, guiactions=actions))
+                content.append(GUIAction(instruction=instruction, guiactions=actions, start_time=start_time, end_time=end_time))
             except Exception as e:
                 print(
                     f"Error in {episode_id}, step {i}: Failed to build actions from '{rawaction}':\n"
