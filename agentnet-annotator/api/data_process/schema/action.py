@@ -518,5 +518,7 @@ class GUIAction(Action):
     guiactions: list[PyAutoGUIAction | BrowserAction | MobileAction | CommunicationAction | ComputerAction] = Field(
         ..., description="The GUI actions to perform"
     )
+    start_time: Optional[float] = Field(None, description="The start timestamp of the action")
+    end_time: Optional[float] = Field(None, description="The end timestamp of the action")
 
 
