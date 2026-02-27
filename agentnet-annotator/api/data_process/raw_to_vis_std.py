@@ -139,11 +139,16 @@ def process_trajectory(traj_data, output_path, source_path=None, raw_events=None
                             while i < len(pyautogui_actions):
                                 action = pyautogui_actions[i]
                                 
-                                # Check if this is a moveTo followed by scroll - skip moveTo
+                                # Check if this is a moveTo followed by scroll - combine into moveTo + scroll
                                 if (action.action_type == GUIActionType.MOVE_TO and 
                                     i + 1 < len(pyautogui_actions) and 
                                     pyautogui_actions[i + 1].action_type == GUIActionType.SCROLL):
-                                    i += 1
+                                    scroll_action = pyautogui_actions[i + 1]
+                                    x = int(action.args.get('x', 0))
+                                    y = int(action.args.get('y', 0))
+                                    amount = int(scroll_action.args.get('amount', scroll_action.args.get('clicks', 0)))
+                                    codes.append(f"pyautogui.moveTo({x}, {y})\npyautogui.scroll({amount})")
+                                    i += 2
                                     continue
                                 
                                 # For drag actions, keep moveTo and dragTo separate

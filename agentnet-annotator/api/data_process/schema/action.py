@@ -221,6 +221,12 @@ class PyAutoGUIAction(BaseModel):
             y = self.args.get('y', 0)
             return f"pyautogui.doubleClick({int(x)}, {int(y)})"
         
+        elif self.action_type == GUIActionType.MOVE_TO:
+            # pyautogui.moveTo(x, y)
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            return f"pyautogui.moveTo({int(x)}, {int(y)})"
+        
         elif self.action_type == GUIActionType.DRAG_TO:
             # Check if this is a standalone dragTo (with x, y) or merged drag (with from_coord, to_coord)
             if 'x' in self.args and 'y' in self.args:
@@ -246,15 +252,15 @@ class PyAutoGUIAction(BaseModel):
             return f"pyautogui.scroll({int(amount)})"
         
         elif self.action_type == GUIActionType.PRESS or self.action_type == GUIActionType.HOTKEY:
-            # pyautogui.press('key') or pyautogui.press(['key1', 'key2'])
-            # HOTKEY is converted to PRESS format
+            # pyautogui.press('key') or pyautogui.hotkey('key1', 'key2') for multiple keys
             keys = self.args.get('keys', self.args.get('key', ''))
             if isinstance(keys, list):
-                # Single key press: use string format, multiple keys: use list format
+                # Single key: press('key'), multiple keys: hotkey('key1', 'key2', ...)
                 if len(keys) == 1:
                     return f"pyautogui.press('{keys[0]}')"
                 else:
-                    return f"pyautogui.press({keys})"
+                    keys_str = ", ".join(f"'{k}'" for k in keys)
+                    return f"pyautogui.hotkey({keys_str})"
             else:
                 return f"pyautogui.press('{keys}')"
         
