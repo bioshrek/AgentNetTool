@@ -579,6 +579,12 @@ def get_key_name(key):
         if key.char is None:
             return VK_CODE.get(key.vk, f"$Unknown ({key.vk})$")
         else:
+            # On Linux, pynput reports the numpad decimal key ('.') as ',' when the
+            # system locale uses comma as the decimal separator. This happens because
+            # X11 maps the key to KP_Separator (keysym 0xFFAC = 65452) instead of
+            # KP_Decimal (keysym 0xFFAE = 65454). Override both to '.'.
+            if system() == "Linux" and key.vk in (65452, 65454):
+                return "."
             if ord(key.char) < 32:
                 return chr(ord(key.char) + 64)
             else:
