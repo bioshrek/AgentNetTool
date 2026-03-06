@@ -30,6 +30,7 @@ class ImageObservation(Observation):
     filename: str = Field(None, description="The filename of the image")
     annotations: list[ImageAnnotation] | None = Field(None, description="The annotations of the image")
     source: str = Field(..., description="The source of the observation (e.g. 'user')")
+    timestamp: Optional[float] = Field(None, description="Unix timestamp of when the screenshot frame was captured")
 
 
 class TextObservation(Observation):

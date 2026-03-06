@@ -305,6 +305,8 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                         print(f"Warning in {episode_dir}, event {index}: Failed to extract frame at {timestamp}s: {type(e).__name__}: {e}")
                         event["frame"] = None
 
+                    event["frame_timestamp"] = timestamp
+
                     # Extract candidate frames for all event types
                     event["frame_candidates"] = []
                     if load_image:
@@ -372,6 +374,7 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                     "target": None,
                     "time_stamp": terminate_time_stamp,
                     "frame": f"data:image/png;base64,{encode_image(terminate_frame)}" if (terminate_frame and load_image) else None,
+                    "frame_timestamp": terminate_time_stamp,
                     "axtree": None,
                 }
                 events.append(terminate_event)

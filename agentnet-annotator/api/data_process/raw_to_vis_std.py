@@ -158,11 +158,22 @@ def process_trajectory(traj_data, output_path, source_path=None, raw_events=None
                             
                             code_str = "\n".join(codes)
 
+                            # Format screenshot_time as video-relative duration HH:MM:ss.mmm
+                            screenshot_time = None
+                            if last_image.timestamp is not None:
+                                t = last_image.timestamp
+                                hours = int(t // 3600)
+                                minutes = int((t % 3600) // 60)
+                                seconds = int(t % 60)
+                                ms = int((t % 1) * 1000)
+                                screenshot_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{ms:03d}"
+
                             # Add step regardless of whether code is empty (keep termination steps)
                             new_traj.append({
                                 "index": step_idx,
                                 "code": code_str,
-                                "screenshot": img_filename
+                                "screenshot": img_filename,
+                                "screenshot_time": screenshot_time
                             })
                             step_idx += 1
                         except Exception as e:

@@ -735,7 +735,7 @@ def convert_examples(sample_raw):
                         print(f"Error in {episode_id}, step {i}: 'frame' key not found in event")
                         break
                     content = [
-                        ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os"),
+                        ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os", timestamp=item["events"][i].get("frame_timestamp")),
                     ]
                 except Exception as e:
                     print(f"Error in {episode_id}, step {i}: Failed to create ImageObservation: {type(e).__name__}: {e}")
@@ -747,7 +747,7 @@ def convert_examples(sample_raw):
                         print(f"Warning in {episode_id}, step {i}: 'frame' key not found, skipping this observation")
                         continue
                     content.append(
-                        ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os")
+                        ImageObservation(content=item["events"][i]["frame"], filename=f"{episode_id}_{i}.png", source="os", timestamp=item["events"][i].get("frame_timestamp"))
                     )
                 except Exception as e:
                     print(f"Warning in {episode_id}, step {i}: Failed to create ImageObservation: {type(e).__name__}: {e}")
