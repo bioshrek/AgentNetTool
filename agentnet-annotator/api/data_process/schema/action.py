@@ -255,20 +255,23 @@ class PyAutoGUIAction(BaseModel):
         elif self.action_type == GUIActionType.PRESS or self.action_type == GUIActionType.HOTKEY:
             # pyautogui.press('key') or pyautogui.hotkey('key1', 'key2') for multiple keys
             keys = self.args.get('keys', self.args.get('key', ''))
+            def escape_sq(s: str) -> str:
+                return s.replace("'", "\\'")
             if isinstance(keys, list):
                 # Single key: press('key'), multiple keys: hotkey('key1', 'key2', ...)
                 if len(keys) == 1:
-                    return f"pyautogui.press('{keys[0]}')"
+                    return f"pyautogui.press('{escape_sq(keys[0])}')"
                 else:
-                    keys_str = ", ".join(f"'{k}'" for k in keys)
+                    keys_str = ", ".join(f"'{escape_sq(k)}'" for k in keys)
                     return f"pyautogui.hotkey({keys_str})"
             else:
-                return f"pyautogui.press('{keys}')"
+                return f"pyautogui.press('{escape_sq(str(keys))}')"
         
         elif self.action_type == GUIActionType.WRITE:
             # pyautogui.write('text')
             message = self.args.get('message', '')
-            return f"pyautogui.write('{message}')"
+            escaped = message.replace("'", "\\'")
+            return f"pyautogui.write('{escaped}')"
         
         else:
             # Fallback for other action types
