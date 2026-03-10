@@ -44,7 +44,6 @@ const config: ForgeConfig = {
   hooks: {
     prePackage: async () => {
       console.log('Building Flask Backend via uv...');
-      /*
       try {
         const { stdout, stderr } = await execAsync('pnpm run build-flask');
         console.log(stdout);
@@ -56,38 +55,33 @@ const config: ForgeConfig = {
         if (err.stderr) console.error('stderr:', err.stderr);
         throw err;
       }
-      */
     }
   },
   rebuildConfig: {},
   makers: [
-    /*
-    new MakerSquirrel({}), 
-    new MakerZIP({}, ['darwin']), 
+    new MakerSquirrel({}),
+    new MakerZIP({}, ['darwin']),
     new MakerRpm({
       options: {
         bin: 'agentnet-annotator'
       }
-    }), 
+    }),
     new MakerDeb({
       options: {
         bin: 'agentnet-annotator'
       }
     }),
-    */
     new MakerAppImage({
       options: {
         bin: 'agentnet-annotator'
       }
     }, ['linux']),
-    /*
     {
       name: '@electron-forge/maker-dmg',
       config: {
         format: 'ULFO'
       }
     }
-    */
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),
