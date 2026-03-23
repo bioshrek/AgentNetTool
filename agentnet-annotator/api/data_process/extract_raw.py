@@ -307,38 +307,6 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
 
                     event["frame_timestamp"] = timestamp
 
-                    # Extract candidate frames for all event types
-                    event["frame_candidates"] = []
-                    if load_image:
-                        event_time_relative = event["start_time"] - raw_traj["metadata"]["video_start_timestamp"]
-                        candidate_offsets = [
-                            ("before_10", -1.0),
-                            ("before_08", -0.8),
-                            ("before_06", -0.6),
-                            ("before_04", -0.4),
-                            ("before_03", -0.3),
-                            ("before_02", -0.2),
-                            ("before_01", -0.1),
-                            ("at_event", 0.0),
-                            ("after_01", 0.1),
-                            ("after_03", 0.3),
-                            ("after_05", 0.5),
-                        ]
-                        
-                        for label, offset in candidate_offsets:
-                            candidate_timestamp = event_time_relative + offset
-                            if 0 <= candidate_timestamp < video_length:
-                                try:
-                                    candidate_frame = extract_frame_at_timestamp(video_path, candidate_timestamp)
-                                    if candidate_frame:
-                                        event["frame_candidates"].append({
-                                            "label": label,
-                                            "timestamp": candidate_timestamp,
-                                            "frame": f"data:image/png;base64,{encode_image(candidate_frame)}"
-                                        })
-                                except Exception as e:
-                                    print(f"Warning in {episode_dir}, event {index}: Failed to extract candidate frame '{label}' at {candidate_timestamp}s: {type(e).__name__}: {e}")
-
                     last_time_stamp = event["end_time"]
                     event["axtree"] = None
                     events.append(event)

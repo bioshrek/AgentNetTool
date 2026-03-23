@@ -82,28 +82,6 @@ def process_trajectory(traj_data, output_path, source_path=None, raw_events=None
                             with open(img_path, 'wb') as img_f:
                                 img_f.write(img_bytes)
                             
-                            # Save candidate images if available from raw events
-                            if raw_events and action_count < len(raw_events):
-                                raw_event = raw_events[action_count]
-                                if "frame_candidates" in raw_event and raw_event["frame_candidates"]:
-                                    candidates_dir = task_dir / "step_img_candidates" / f"step_{step_idx}"
-                                    candidates_dir.mkdir(parents=True, exist_ok=True)
-                                    
-                                    for candidate in raw_event["frame_candidates"]:
-                                        try:
-                                            candidate_data = candidate["frame"]
-                                            if candidate_data.startswith('data:image/png;base64,'):
-                                                candidate_data = candidate_data.replace('data:image/png;base64,', '')
-                                            
-                                            candidate_bytes = base64.b64decode(candidate_data)
-                                            candidate_filename = f"{candidate['label']}.png"
-                                            candidate_path = candidates_dir / candidate_filename
-                                            
-                                            with open(candidate_path, 'wb') as cand_f:
-                                                cand_f.write(candidate_bytes)
-                                        except Exception as e:
-                                            print(f"Warning: Failed to save candidate image '{candidate.get('label', 'unknown')}' for step {step_idx}: {e}")
-                            
                             action_count += 1
                             
                             # Generate code with absolute coordinates
