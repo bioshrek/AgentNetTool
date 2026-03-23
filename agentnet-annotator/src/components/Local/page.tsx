@@ -202,6 +202,7 @@ interface KeyboardKeyProps {
 interface DisplayTextareaProps {
   value: string;
   index: number;
+  truncate?: boolean;
 }
 
 export interface eventProp {
@@ -579,6 +580,7 @@ const Page = () => {
   const DisplayTextarea: React.FC<DisplayTextareaProps> = ({
     value,
     index,
+    truncate = false,
   }) => {
     return (
       <div
@@ -587,7 +589,9 @@ const Page = () => {
           overflow: "hidden",
         }}
         onClick={() => handleEdit(index)}
-        className="text-xs text-slate-600 dark:text-slate-400 my-1 p-0 text-warp"
+        className={`text-xs text-slate-600 dark:text-slate-400 my-1 p-0 text-warp${
+          truncate ? " line-clamp-3" : ""
+        }`}
       >
         {replaceWithKeyboardKeys(value)}
       </div>
@@ -1967,7 +1971,7 @@ const Page = () => {
                               after="block w-full max-w-4xl rounded-md border-0 py-1.5 text-warp text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 focus:dark:ring-indigo-500 dark:ring-gray-700 dark:bg-gray-800 dark:text-gray-100"
                             />
                           ) : (
-                            <p className="text-md w-full font-bold text-black my-1 p-0 text-warp dark:text-white">
+                            <p className="text-md w-full font-bold text-black my-1 p-0 text-warp dark:text-white line-clamp-2">
                               {Title2String(
                                 event.action,
                                 event.target,
@@ -1990,6 +1994,7 @@ const Page = () => {
                             <DisplayTextarea
                               value={event.description as string}
                               index={index}
+                              truncate
                             />
                           )}
                         </Box>
