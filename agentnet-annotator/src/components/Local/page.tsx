@@ -1922,15 +1922,13 @@ const Page = () => {
                     >
                       <Badge
                         badgeContent={
-                          index === activeStep ? (
-                            <ClearIcon
-                              onClick={() => requestDeleteEvent(index)}
-                              style={{
-                                color: "primary.light",
-                                cursor: "pointer",
-                              }}
-                            />
-                          ) : null
+                          <ClearIcon
+                            onClick={() => requestDeleteEvent(index)}
+                            style={{
+                              color: "primary.light",
+                              cursor: "pointer",
+                            }}
+                          />
                         }
                         variant="plain"
                         size="sm"
