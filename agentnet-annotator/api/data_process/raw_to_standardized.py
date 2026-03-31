@@ -135,6 +135,8 @@ def get_action_type(action: str):
         return "rightClick"
     elif "mouse long press middle button" in action:
         return "middleClick"
+    elif "modifier+click:" in action:
+        return "modifierClick"
     elif "type" in action:
         return "write"
     elif "press" in action:
@@ -606,6 +608,35 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
                                 )
         else:
             actionlist = [PyAutoGUIAction(action_type=GUIActionType.HOTKEY, target=None, args={"keys": keys})]
+    elif action_type == "modifierClick":
+        match = re.search(r"Modifier\+Click:\s*\$([^$]+)\$\s*(.*)$", action)
+        if not match:
+            raise ValueError(f"Cannot parse modifierClick action '{action}' in episode:{episode_id}, step:{step_num}")
+
+        key_name = match.group(1).strip()
+        clicks_part = match.group(2).strip()
+        click_matches = re.findall(r"(left|right|middle)\s*\(([-+]?[0-9]*\.?[0-9]+),\s*([-+]?[0-9]*\.?[0-9]+)\)", clicks_part)
+        if not click_matches:
+            raise ValueError(f"No click coordinates found in modifierClick action '{action}' in episode:{episode_id}, step:{step_num}")
+
+        actionlist = [
+            PyAutoGUIAction(action_type=GUIActionType.KEY_DOWN, target=None, args={"key": key_name}),
+        ]
+
+        for button, x_str, y_str in click_matches:
+            x = max(0, min(float(x_str), img_size[0]))
+            y = max(0, min(float(y_str), img_size[1]))
+            actionlist.append(
+                PyAutoGUIAction(
+                    action_type=GUIActionType.CLICK,
+                    target=None,
+                    args={"x": x / img_size[0], "y": y / img_size[1], "button": button},
+                )
+            )
+
+        actionlist.append(
+            PyAutoGUIAction(action_type=GUIActionType.KEY_UP, target=None, args={"key": key_name})
+        )
     elif action_type == "dragTo":
         from_coor, target_coor = action.split("Drag from ")[1].split(" to ")
         from_x, from_y = map(float, from_coor.split("(")[1].split(")")[0].split(","))
