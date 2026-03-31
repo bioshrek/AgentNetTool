@@ -226,18 +226,28 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                     # Check if this looks like a click event and needs coordinates
                     action_lower = complete_events[index]["action"].lower()
                     desc_lower = complete_events[index]["description"].lower()
+                    complete_event = complete_events[index]
+                    children = complete_event.get("children", [])
+                    has_modifier_click_children = (
+                        action_lower in ["long_press", "modifier_click"]
+                        and any(
+                            child.get("action") == "click"
+                            and child.get("pressed")
+                            and isinstance(child.get("coordinate"), dict)
+                            for child in children
+                        )
+                    )
                     
                     if (
                         "click" in action_lower
                         or "mouse_press" in action_lower
                         or "click" in desc_lower
+                        or has_modifier_click_children
                     ) and "(" not in event["description"]:
                         # Verify this is actually a mouse event, not a keyboard event
                         # that happens to have "click" substring in its description
                         if "coordinate" not in complete_events[index]:
-                            complete_event = complete_events[index]
                             action_name = complete_event.get("action", "").lower()
-                            children = complete_event.get("children", [])
                             key_name = complete_event.get("key_name")
 
                             click_children = [
