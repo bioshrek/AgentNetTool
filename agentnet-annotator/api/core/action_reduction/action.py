@@ -780,6 +780,26 @@ class Press(Action):  # type, press, long press
                 if child.transformed == False:
                     child.transform()
 
+        # Modifier + click combo: export as a dedicated action carrying click details.
+        visible_children = [child for child in self.children if child.vis]
+        if visible_children and all(isinstance(child, Click) for child in visible_children):
+            click_children = [
+                child
+                for child in visible_children
+                if child.pressed and child.coordinate is not None
+            ]
+            if len(click_children) == len(visible_children):
+                click_strs = [
+                    f"{child.button} ({int(child.coordinate['x'])}, {int(child.coordinate['y'])})"
+                    for child in click_children
+                ]
+                self.action = "modifier_click"
+                self.description = (
+                    f"⌨️ Modifier+Click: {wrap_func_key(self.key_name)} "
+                    + "; ".join(click_strs)
+                )
+                return
+
         if len(self.children) == 1:
             if self.children[0].action == "type":
                 self.description = "⌨️ Press: {} + {}".format(

@@ -73,6 +73,8 @@ class GUIActionType(str, Enum):
     WRITE = "write"
     PRESS = "press"
     HOTKEY = "hotkey"
+    KEY_DOWN = "keyDown"
+    KEY_UP = "keyUp"
 
 
 class GUIElement(BaseModel):
@@ -266,6 +268,11 @@ class PyAutoGUIAction(BaseModel):
                     return f"pyautogui.hotkey({keys_str})"
             else:
                 return f"pyautogui.press('{escape_sq(str(keys))}')"
+
+        elif self.action_type in (GUIActionType.KEY_DOWN, GUIActionType.KEY_UP):
+            key = str(self.args.get("key", "")).replace("'", "\\'")
+            func = "keyDown" if self.action_type == GUIActionType.KEY_DOWN else "keyUp"
+            return f"pyautogui.{func}('{key}')"
         
         elif self.action_type == GUIActionType.WRITE:
             # pyautogui.write('text')

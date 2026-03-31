@@ -226,44 +226,74 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                     # Check if this looks like a click event and needs coordinates
                     action_lower = complete_events[index]["action"].lower()
                     desc_lower = complete_events[index]["description"].lower()
+                    complete_event = complete_events[index]
+                    children = complete_event.get("children", [])
+                    has_modifier_click_children = (
+                        action_lower in ["long_press", "modifier_click"]
+                        and any(
+                            child.get("action") == "click"
+                            and child.get("pressed")
+                            and isinstance(child.get("coordinate"), dict)
+                            for child in children
+                        )
+                    )
                     
                     if (
                         "click" in action_lower
                         or "mouse_press" in action_lower
                         or "click" in desc_lower
+                        or has_modifier_click_children
                     ) and "(" not in event["description"]:
                         # Verify this is actually a mouse event, not a keyboard event
                         # that happens to have "click" substring in its description
                         if "coordinate" not in complete_events[index]:
-                            # This is a keyboard event misidentified as a mouse event
-                            # due to substring matching (e.g., "Click" in description, "Counter" contains chars)
-                            error_msg = (
-                                f"\n{'='*80}\n"
-                                f"ERROR: Event combining keyboard and mouse detected in {episode_dir}\n"
-                                f"{'='*80}\n"
-                                f"Event Index: {index} (ID: {event.get('id', 'N/A')})\n"
-                                f"Event Action: {complete_events[index]['action']}\n"
-                                f"Event Description: {complete_events[index]['description']}\n"
-                                f"\nPROBLEM:\n"
-                                f"  This event was matched as a mouse event (due to 'click' substring in description)\n"
-                                f"  but it's actually a keyboard 'press' event without coordinate data.\n"
-                                f"\nREASON:\n"
-                                f"  The description contains a substring that matches the 'click' pattern.\n"
-                                f"  This causes the code to expect 'coordinate' field which doesn't exist for keyboard events.\n"
-                                f"\nEXPECTED BEHAVIOR:\n"
-                                f"  Keyboard events (action='press') should NOT be processed as mouse events.\n"
-                                f"  Events with mouse-related keywords in descriptions need proper validation.\n"
-                                f"\nRECOMMENDATION:\n"
-                                f"  This recording contains ambiguous event data that combines keyboard and mouse semantics.\n"
-                                f"  The event structure needs to be fixed at the recording level.\n"
-                                f"{'='*80}\n"
-                            )
-                            print(error_msg)
-                            raise ValueError(
-                                f"Cannot export recording '{episode_dir}': Event {index} combines keyboard and mouse actions. "
-                                f"Event action is '{complete_events[index]['action']}' but description '{complete_events[index]['description']}' "
-                                f"contains mouse-related keywords. This type of event combination is not supported for export."
-                            )
+                            action_name = complete_event.get("action", "").lower()
+                            key_name = complete_event.get("key_name")
+
+                            click_children = [
+                                child
+                                for child in children
+                                if child.get("action") == "click"
+                                and child.get("pressed")
+                                and isinstance(child.get("coordinate"), dict)
+                            ]
+
+                            if action_name in ["long_press", "modifier_click"] and key_name and click_children:
+                                click_strs = [
+                                    f"{child.get('button', 'left')} ({int(child['coordinate']['x'])}, {int(child['coordinate']['y'])})"
+                                    for child in click_children
+                                ]
+                                event["description"] = f"⌨️ Modifier+Click: ${key_name}$ " + "; ".join(click_strs)
+                            else:
+                                # This is a keyboard event misidentified as a mouse event
+                                # due to substring matching (e.g., "Click" in description, "Counter" contains chars)
+                                error_msg = (
+                                    f"\n{'='*80}\n"
+                                    f"ERROR: Event combining keyboard and mouse detected in {episode_dir}\n"
+                                    f"{'='*80}\n"
+                                    f"Event Index: {index} (ID: {event.get('id', 'N/A')})\n"
+                                    f"Event Action: {complete_events[index]['action']}\n"
+                                    f"Event Description: {complete_events[index]['description']}\n"
+                                    f"\nPROBLEM:\n"
+                                    f"  This event was matched as a mouse event (due to 'click' substring in description)\n"
+                                    f"  but it's actually a keyboard 'press' event without coordinate data.\n"
+                                    f"\nREASON:\n"
+                                    f"  The description contains a substring that matches the 'click' pattern.\n"
+                                    f"  This causes the code to expect 'coordinate' field which doesn't exist for keyboard events.\n"
+                                    f"\nEXPECTED BEHAVIOR:\n"
+                                    f"  Keyboard events (action='press') should NOT be processed as mouse events.\n"
+                                    f"  Events with mouse-related keywords in descriptions need proper validation.\n"
+                                    f"\nRECOMMENDATION:\n"
+                                    f"  This recording contains ambiguous event data that combines keyboard and mouse semantics.\n"
+                                    f"  The event structure needs to be fixed at the recording level.\n"
+                                    f"{'='*80}\n"
+                                )
+                                print(error_msg)
+                                raise ValueError(
+                                    f"Cannot export recording '{episode_dir}': Event {index} combines keyboard and mouse actions. "
+                                    f"Event action is '{complete_events[index]['action']}' but description '{complete_events[index]['description']}' "
+                                    f"contains mouse-related keywords. This type of event combination is not supported for export."
+                                )
                         else:
                             event["description"] = (
                                 event["description"]
