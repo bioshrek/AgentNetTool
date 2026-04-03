@@ -79,6 +79,7 @@ dependencies = [
     "plyer==2.1.0",
     "pyinstaller==6.9.0",
     "uiautomation==2.0.20",
+    "av>=17.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

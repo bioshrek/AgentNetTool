@@ -8,6 +8,7 @@ import queue
 import platform
 import ctypes
 import re
+import av
 from pathlib import Path
 import shutil
 
@@ -86,6 +87,7 @@ class Reducer:
         self.terminate_method = "click"
         self.generate_window_a11y = configs["generate_window_a11y"]
         self.generate_element_a11y = configs["generate_element_a11y"]
+        self.skip_video = configs.get("skip_video", False)
         self.flatten = False
 
         self.reduce_status = {}
@@ -676,6 +678,33 @@ class Reducer:
         logger.error(f"finish {len(self.reduced_actions)}")
 
     def process_actions_multithreaded(self, recording_path, video_attrs, window_attrs):
+        # Resolve video path and metadata once up front so every thread can
+        # skip the per-action os.listdir() call and the retry loop.
+        if "video_path" not in video_attrs:
+            video_name = self._find_video_name(recording_path)
+            if video_name:
+                video_path = os.path.join(recording_path, video_name)
+                try:
+                    with av.open(video_path) as src:
+                        vs = src.streams.video[0]
+                        fps = int(float(vs.average_rate))
+                        total_frames = (
+                            vs.frames
+                            if vs.frames
+                            else (
+                                int(vs.duration * float(vs.time_base) * fps)
+                                if vs.duration and vs.time_base
+                                else 0
+                            )
+                        )
+                        video_attrs["video_path"] = video_path
+                        video_attrs.setdefault("fps", fps)
+                        video_attrs.setdefault("width", vs.width)
+                        video_attrs.setdefault("height", vs.height)
+                        video_attrs.setdefault("total_frames", total_frames)
+                except Exception as e:
+                    logger.warning(f"Reducer: failed to probe video {video_path}: {e}")
+
         def process_action(action, recording_path, video_attrs, window_attrs):
             action.to_video(
                 recording_path=recording_path,
@@ -684,21 +713,39 @@ class Reducer:
             )
 
         threads = []
-        max_threads = 8
+        max_threads = 8  # avc1 release() is fast (~76ms), concurrent encoding is safe
         q = queue.Queue()
 
         # Enqueue all actions
         for action in self.reduced_actions:
             q.put(action)
 
-        # Function to process actions from the queue
+        # Function to process actions from the queue.
+        # Uses non-blocking get to avoid a race-condition deadlock: if two
+        # threads simultaneously see q.empty() as False but only one item
+        # remains, the second thread's blocking q.get() would block forever
+        # and the matching thread.join() would never return.
         def worker():
-            while not q.empty():
-                action = q.get()
-                if action is None:
+            while True:
+                try:
+                    action = q.get(block=False)
+                except queue.Empty:
                     break
-                process_action(action, recording_path, video_attrs, window_attrs)
-                q.task_done()
+                if action is None:
+                    q.task_done()
+                    break
+                _t = time.perf_counter()
+                try:
+                    process_action(action, recording_path, video_attrs, window_attrs)
+                except Exception:
+                    logger.exception(
+                        f"Reducer: video generation failed for action {action.id} ({action.action})"
+                    )
+                finally:
+                    q.task_done()
+                logger.info(
+                    f"Reducer: action {action.id} ({action.action}) video done in {time.perf_counter() - _t:.2f}s"
+                )
 
         # Start initial batch of threads
         for _ in range(min(max_threads, len(self.reduced_actions))):
@@ -709,6 +756,18 @@ class Reducer:
         # Wait for all threads to finish
         for thread in threads:
             thread.join()
+
+    def _find_video_name(self, recording_path):
+        """Return the best mp4 filename in recording_path.
+
+        Prefers files that don't start with 'original' so that backup copies
+        created by pre-processing steps aren't accidentally used.
+        """
+        candidates = sorted(
+            (f for f in os.listdir(recording_path) if f.endswith(".mp4")),
+            key=lambda f: (f.startswith("original"), f),
+        )
+        return candidates[0] if candidates else None
 
     def _save_action(self, action):
         action.complete_dump(recording_dir=self.recording_path)
@@ -987,9 +1046,12 @@ class Reducer:
                 return idx
             return idx - 1
 
-        axtree_data = read_encrypted_jsonl(
-            path=os.path.join(self.recording_path, "a11y.jsonl")
-        )
+        a11y_path = os.path.join(self.recording_path, "a11y.jsonl")
+        if not os.path.exists(a11y_path):
+            logger.warning(f"match_axtree: a11y.jsonl not found at {a11y_path}, skipping axtree matching")
+            return
+
+        axtree_data = read_encrypted_jsonl(path=a11y_path)
 
         # sort trees by their time_stamp
         sorted_axtree_data = sorted(axtree_data, key=lambda x: x["time_stamp"])
@@ -1050,10 +1112,12 @@ class Reducer:
                 if os.path.exists(traj_raw_path):
                     os.remove(traj_raw_path)
 
+            _t = time.perf_counter()
             self.compress(events)
             self.reduce_all()
             self.transform()
             self.finish()
+            logger.info(f"Reducer: compress/reduce/transform/finish: {time.perf_counter() - _t:.2f}s")
 
             event_buffer_path = os.path.join(recording_path, "event_buffer.jsonl")
             if os.path.exists(event_buffer_path):
@@ -1069,29 +1133,40 @@ class Reducer:
             # TODO: delete former video clips
 
             if self.generate_window_a11y:
+                _t = time.perf_counter()
                 self.match_axtree()
+                logger.info(f"Reducer: match_axtree: {time.perf_counter() - _t:.2f}s")
             from platform import system
             if self.generate_element_a11y and system() != "Linux":
+                _t = time.perf_counter()
                 self.match_element()
+                logger.info(f"Reducer: match_element: {time.perf_counter() - _t:.2f}s")
 
-            with open(os.path.join(recording_path, "metadata.json"), "r") as f:
-                metadata = json.load(f)
-            video_start_time = metadata["video_start_timestamp"]
-            video_attrs = {"video_start_time": video_start_time}
-            time.sleep(1)
-            self.process_actions_multithreaded(
-                recording_path=recording_path,
-                video_attrs=video_attrs,
-                window_attrs=self.window_attrs,
-            )
+            if self.skip_video:
+                logger.info("Reducer: skipping video clip generation (skip_video=True)")
+            else:
+                with open(os.path.join(recording_path, "metadata.json"), "r") as f:
+                    metadata = json.load(f)
+                video_start_time = metadata["video_start_timestamp"]
+                video_attrs = {"video_start_time": video_start_time}
+                time.sleep(1)
+                _t = time.perf_counter()
+                self.process_actions_multithreaded(
+                    recording_path=recording_path,
+                    video_attrs=video_attrs,
+                    window_attrs=self.window_attrs,
+                )
+                logger.info(f"Reducer: video generation ({len(self.reduced_actions)} clips): {time.perf_counter() - _t:.2f}s")
 
+            _t = time.perf_counter()
             self.complete_dump(recording_path)
             self.vis_dump(recording_path)
-            
+            logger.info(f"Reducer: complete_dump + vis_dump: {time.perf_counter() - _t:.2f}s")
+
             reduction_time = time.perf_counter() - start_time
 
             logger.info(
-                f"Reducer: action num: {len(self.reduced_actions)}, reduce time: {reduction_time}"
+                f"Reducer: action num: {len(self.reduced_actions)}, reduce time: {reduction_time:.2f}s"
             )
 
         except Exception as e:
@@ -1119,15 +1194,74 @@ def visualize_recording(
     reducer.reduce_pipeline()
 
 
+def reduce_recording_by_path(
+    recording_path, generate_window_a11y=True, generate_element_a11y=True, skip_video=False
+):
+    """Run the reduction pipeline on a recording given its absolute path."""
+    recording_path = os.path.expanduser(recording_path)
+
+    with open(os.path.join(recording_path, "metadata.json"), "r") as f:
+        metadata = json.load(f)
+    width, height = metadata["screen_width"], metadata["screen_height"]
+
+    reducer = Reducer(
+        recording_path=recording_path,
+        window_attrs={"width": width, "height": height},
+        configs={
+            "generate_window_a11y": generate_window_a11y,
+            "generate_element_a11y": generate_element_a11y,
+            "skip_video": skip_video,
+        },
+    )
+
+    reducer.reduce_pipeline()
+
+
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Process recording name.")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(description="Run the action reduction pipeline on a recording.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--recording_name",
         type=str,
-        help="The name of the recording to process",
+        help="Name of the recording inside the default recordings directory.",
+    )
+    group.add_argument(
+        "--recording_path",
+        type=str,
+        help="Absolute (or ~-expanded) path to the recording directory.",
+    )
+    parser.add_argument(
+        "--no_window_a11y",
+        action="store_true",
+        help="Disable window-level accessibility tree extraction.",
+    )
+    parser.add_argument(
+        "--no_element_a11y",
+        action="store_true",
+        help="Disable element-level accessibility tree extraction.",
+    )
+    parser.add_argument(
+        "--skip_video",
+        action="store_true",
+        help="Skip video clip generation (useful for fast testing of the reduction output).",
     )
     args = parser.parse_args()
 
-    visualize_recording(recording_name=args.recording_name)
+    generate_window_a11y = not args.no_window_a11y
+    generate_element_a11y = not args.no_element_a11y
+
+    if args.recording_path:
+        reduce_recording_by_path(
+            recording_path=args.recording_path,
+            generate_window_a11y=generate_window_a11y,
+            generate_element_a11y=generate_element_a11y,
+            skip_video=args.skip_video,
+        )
+    else:
+        visualize_recording(
+            recording_name=args.recording_name,
+            generate_window_a11y=generate_window_a11y,
+            generate_element_a11y=generate_element_a11y,
+        )
