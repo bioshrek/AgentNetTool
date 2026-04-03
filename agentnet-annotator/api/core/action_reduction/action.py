@@ -228,9 +228,12 @@ class Action:
             return self.children[-1]._get_video_end_time()
 
     def _get_video_name(self, recording_path):
-        for file_name in os.listdir(recording_path):
-            if file_name.endswith(".mp4"):
-                return file_name
+        # Prefer files that don't start with "original" (those are backups).
+        candidates = sorted(
+            (f for f in os.listdir(recording_path) if f.endswith(".mp4")),
+            key=lambda f: (f.startswith("original"), f),
+        )
+        return candidates[0] if candidates else None
 
     def process_start_end_time(self, start_time, end_time):
         if end_time - start_time < 0.5:
@@ -253,8 +256,13 @@ class Action:
             )
             return
 
-        video_name = self._get_video_name(recording_path)
-        video_path = os.path.join(recording_path, video_name)
+        # Use pre-resolved video path from video_attrs when available (set by
+        # Reducer.process_actions_multithreaded) to avoid per-action os.listdir
+        # calls and the retry loop.
+        video_path = video_attrs.get("video_path")
+        if video_path is None:
+            video_name = self._get_video_name(recording_path)
+            video_path = os.path.join(recording_path, video_name)
 
         max_attempts = 10
         attempt = 0
@@ -275,39 +283,44 @@ class Action:
                 attempt += 1
                 time.sleep(1)
 
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        # Try using vp09 (VP9) which is supported by Electron and available in opencv-python on Linux
-        fourcc = cv2.VideoWriter_fourcc(*"vp09")
-
+        # Use pre-resolved metadata from video_attrs when available to skip
+        # redundant cap.get() calls across threads.
+        fps = video_attrs.get("fps") or int(cap.get(cv2.CAP_PROP_FPS))
+        width = video_attrs.get("width") or int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = video_attrs.get("height") or int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = video_attrs.get("total_frames") or int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         os.makedirs(os.path.join(recording_path, "video_clips"), exist_ok=True)
         output_path = os.path.join(
             recording_path, "video_clips", f"{video_clip_name}.mp4"
         )
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        if not out.isOpened():
-            logger.warning(
-                f"VideoWriter failed to open with vp09 for {output_path}. Falling back to mp4v."
-            )
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        video_attrs.update(
-            {
-                "fps": fps,
-                "width": width,
-                "height": height,
-                "total_frames": total_frames,
-            }
-        )
+        # Prefer avc1 (H.264): fast encoding, fast release(), small files, Electron-compatible.
+        # VP9 (vp09) defers all encoding to out.release(), causing ~4s/clip latency flush cost.
+        out = None
+        for codec in ("avc1", "mp4v", "vp09"):
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            candidate = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            if candidate.isOpened():
+                out = candidate
+                break
+            candidate.release()
+        if out is None:
+            raise RuntimeError(f"Could not open VideoWriter for {output_path} with any codec")
 
+        # Build a per-call attrs dict so subclass overrides of process_video_segment
+        # get all expected keys without racing on the shared video_attrs dict.
+        local_video_attrs = {
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "total_frames": total_frames,
+            "video_start_time": video_attrs["video_start_time"],
+        }
         self.process_video_segment(
             start_time,
             end_time,
             cap,
             out,
-            video_attrs=video_attrs,
+            video_attrs=local_video_attrs,
             window_attrs=window_attrs,
         )
 
