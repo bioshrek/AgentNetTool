@@ -8,7 +8,7 @@ import queue
 import platform
 import ctypes
 import re
-import cv2
+import av
 from pathlib import Path
 import shutil
 
@@ -684,14 +684,26 @@ class Reducer:
             video_name = self._find_video_name(recording_path)
             if video_name:
                 video_path = os.path.join(recording_path, video_name)
-                cap = cv2.VideoCapture(video_path)
-                if cap.isOpened():
-                    video_attrs["video_path"] = video_path
-                    video_attrs.setdefault("fps", int(cap.get(cv2.CAP_PROP_FPS)))
-                    video_attrs.setdefault("width", int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
-                    video_attrs.setdefault("height", int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-                    video_attrs.setdefault("total_frames", int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
-                cap.release()
+                try:
+                    with av.open(video_path) as src:
+                        vs = src.streams.video[0]
+                        fps = int(float(vs.average_rate))
+                        total_frames = (
+                            vs.frames
+                            if vs.frames
+                            else (
+                                int(vs.duration * float(vs.time_base) * fps)
+                                if vs.duration and vs.time_base
+                                else 0
+                            )
+                        )
+                        video_attrs["video_path"] = video_path
+                        video_attrs.setdefault("fps", fps)
+                        video_attrs.setdefault("width", vs.width)
+                        video_attrs.setdefault("height", vs.height)
+                        video_attrs.setdefault("total_frames", total_frames)
+                except Exception as e:
+                    logger.warning(f"Reducer: failed to probe video {video_path}: {e}")
 
         def process_action(action, recording_path, video_attrs, window_attrs):
             action.to_video(

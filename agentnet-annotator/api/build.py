@@ -27,6 +27,7 @@ if system() == "Darwin":
         "--hidden-import", "gevent-websocket",
         "--runtime-hook", "runtime-hook.py",
         "--distpath", "./dist",
+        "--collect-all", "av",
         "backend.py"
     ]
 elif system() == "Windows":
@@ -38,6 +39,7 @@ elif system() == "Windows":
         "--runtime-hook", "runtime-hook.py",
         "--distpath", "./dist",
         "--collect-all", "comtypes",
+        "--collect-all", "av",
         "backend.py"
     ]
 else: # Linux
@@ -57,6 +59,7 @@ else: # Linux
         "--hidden-import", "gevent-websocket",
         "--runtime-hook", "runtime-hook.py",
         "--distpath", "./dist",
+        "--collect-all", "av",
         "backend.py"
     ] + additional_args
 

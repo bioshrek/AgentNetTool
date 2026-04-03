@@ -1,9 +1,9 @@
 import os
+import av
 import cv2
 import numpy as np
 from collections import OrderedDict
 from typing import List, Dict, Optional
-import time
 
 from copy import deepcopy
 
@@ -256,95 +256,105 @@ class Action:
             )
             return
 
-        # Use pre-resolved video path from video_attrs when available (set by
-        # Reducer.process_actions_multithreaded) to avoid per-action os.listdir
-        # calls and the retry loop.
         video_path = video_attrs.get("video_path")
         if video_path is None:
             video_name = self._get_video_name(recording_path)
             video_path = os.path.join(recording_path, video_name)
 
-        max_attempts = 10
-        attempt = 0
-        cap = None
-        while attempt < max_attempts:
-            try:
-                cap = cv2.VideoCapture(video_path)
-                if cap.isOpened() and cap is not None:
-                    break
-                attempt += 1
-                logger.warning(
-                    f"Attempt {attempt} to open video file failed. Retrying in 1 second..."
-                )
-                time.sleep(1)
-            except Exception as e:
-                logger.exception(
-                    f"Error during attempt {attempt} to open video: {str(e)}")
-                attempt += 1
-                time.sleep(1)
+        fps = video_attrs.get("fps")
+        width = video_attrs.get("width")
+        height = video_attrs.get("height")
+        total_frames = video_attrs.get("total_frames")
 
-        # Use pre-resolved metadata from video_attrs when available to skip
-        # redundant cap.get() calls across threads.
-        fps = video_attrs.get("fps") or int(cap.get(cv2.CAP_PROP_FPS))
-        width = video_attrs.get("width") or int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = video_attrs.get("height") or int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = video_attrs.get("total_frames") or int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         os.makedirs(os.path.join(recording_path, "video_clips"), exist_ok=True)
         output_path = os.path.join(
             recording_path, "video_clips", f"{video_clip_name}.mp4"
         )
-        # Prefer avc1 (H.264): fast encoding, fast release(), small files, Electron-compatible.
-        # VP9 (vp09) defers all encoding to out.release(), causing ~4s/clip latency flush cost.
-        out = None
-        for codec in ("avc1", "mp4v", "vp09"):
-            fourcc = cv2.VideoWriter_fourcc(*codec)
-            candidate = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            if candidate.isOpened():
-                out = candidate
-                break
-            candidate.release()
-        if out is None:
-            raise RuntimeError(f"Could not open VideoWriter for {output_path} with any codec")
 
-        # Build a per-call attrs dict so subclass overrides of process_video_segment
-        # get all expected keys without racing on the shared video_attrs dict.
-        local_video_attrs = {
-            "fps": fps,
-            "width": width,
-            "height": height,
-            "total_frames": total_frames,
-            "video_start_time": video_attrs["video_start_time"],
-        }
-        self.process_video_segment(
-            start_time,
-            end_time,
-            cap,
-            out,
-            video_attrs=local_video_attrs,
-            window_attrs=window_attrs,
-        )
+        codec_name = "libx264" if "libx264" in av.codec.codecs_available else "mpeg4"
 
-    def process_video_segment(
-        self, start_time, end_time, cap, out, video_attrs: dict, window_attrs: dict
-    ):
-        """
-        video_attrs["fps"], video_attrs["width"], video_attrs["height"], video_attrs["total_frames"]
-        window_attrs["height"], window_attrs["width"]
-        """
-        fps, total_frames = video_attrs["fps"], video_attrs["total_frames"]
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        with av.open(video_path) as src, av.open(output_path, mode="w") as dst:
+            in_stream = src.streams.video[0]
 
-        for _ in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
+            # Resolve metadata from stream if not pre-populated by Reducer.
+            if fps is None:
+                fps = int(float(in_stream.average_rate))
+            if width is None:
+                width = in_stream.width
+            if height is None:
+                height = in_stream.height
+            if total_frames is None or total_frames == 0:
+                if in_stream.frames:
+                    total_frames = in_stream.frames
+                elif in_stream.duration and in_stream.time_base:
+                    total_frames = int(
+                        in_stream.duration * float(in_stream.time_base) * fps
+                    )
+                else:
+                    total_frames = 2 ** 31
 
-            out.write(frame)
+            out_stream = dst.add_stream(codec_name, rate=fps)
+            out_stream.width = width
+            out_stream.height = height
+            out_stream.pix_fmt = "yuv420p"
+            if codec_name == "libx264":
+                out_stream.options = self._get_encoder_options()
 
-        cap.release()
-        out.release()
+            local_video_attrs = {
+                "fps": fps,
+                "width": width,
+                "height": height,
+                "total_frames": total_frames,
+                "video_start_time": video_attrs["video_start_time"],
+            }
+
+            start_frame = max(0, int(start_time * fps))
+            end_frame = min(total_frames, int(end_time * fps))
+            max_frames = end_frame - start_frame
+
+            annotate = self._make_annotator(
+                start_time, end_time, start_frame, local_video_attrs, window_attrs
+            )
+
+            start_pts = int(start_time / float(in_stream.time_base))
+            src.seek(start_pts, stream=in_stream)
+
+            frame_count = 0
+            done = False
+            for packet in src.demux(in_stream):
+                if packet.dts is None:
+                    break
+                for frame in packet.decode():
+                    if frame.pts is None:
+                        continue
+                    frame_time = float(frame.pts * in_stream.time_base)
+                    if frame_time < start_time:
+                        continue
+                    if frame_time >= end_time or frame_count >= max_frames:
+                        done = True
+                        break
+                    img = frame.to_ndarray(format="bgr24")
+                    img = annotate(img, start_frame + frame_count)
+                    out_frame = av.VideoFrame.from_ndarray(img, format="bgr24")
+                    out_frame.pts = frame_count
+                    for p in out_stream.encode(out_frame):
+                        dst.mux(p)
+                    frame_count += 1
+                if done:
+                    break
+
+            for p in out_stream.encode():
+                dst.mux(p)
+
+    def _get_encoder_options(self) -> dict:
+        """libx264 options for this action type. Override in subclasses as needed."""
+        return {"preset": "medium", "crf": "28"}
+
+    def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
+        """Return a callable (img, frame_number) -> img for per-frame annotation."""
+        def annotate(img, frame_number):
+            return img
+        return annotate
 
 
 class Move(Action):
@@ -400,46 +410,37 @@ class Type(Action):
             self.description += wrap_func_key(key)
         logger.error("transform {}".format(self.key_names))
 
-    def process_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
+    def _get_encoder_options(self) -> dict:
+        return {"preset": "ultrafast", "crf": "28"}
+
+    def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
         video_start_time = video_attrs["video_start_time"]
-        fps, width, height, total_frames = (
-            video_attrs["fps"],
-            video_attrs["width"],
-            video_attrs["height"],
-            video_attrs["total_frames"],
-        )
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        fps = video_attrs["fps"]
+        width = video_attrs["width"]
+        height = video_attrs["height"]
 
         font_scale, font_thickness, font = 2.5, 3, cv2.FONT_HERSHEY_SIMPLEX
         text_color = (0, 0, 255)
+        key_display_time = 0.5
 
         key_index = 0
         current_key = ""
-        key_display_time = 0.5
 
-        for frame_number in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
-
+        def annotate(img, frame_number):
+            nonlocal key_index, current_key
             current_time = start_time + (frame_number - start_frame) / fps
 
-            # check if show new key
             if (
                 key_index < len(self.time_trace)
                 and self.time_trace[key_index] <= current_time + video_start_time
             ):
                 current_key = self.key_names[key_index]
                 key_index += 1
-            elif (
+            elif key_index > 0 and (
                 current_time + video_start_time
                 > self.time_trace[key_index - 1] + key_display_time
             ):
-                current_key = ""  # clean key after show
+                current_key = ""
 
             if current_key:
                 text_size = cv2.getTextSize(
@@ -447,9 +448,8 @@ class Type(Action):
                 )[0]
                 text_x = (width - text_size[0]) // 2
                 text_y = height - 100
-
                 cv2.putText(
-                    frame,
+                    img,
                     current_key,
                     (text_x, text_y),
                     font,
@@ -457,11 +457,9 @@ class Type(Action):
                     text_color,
                     font_thickness,
                 )
+            return img
 
-            out.write(frame)
-
-        cap.release()
-        out.release()
+        return annotate
 
 
 class Click(Action):  # single, double, triple, drag
@@ -594,71 +592,37 @@ class Click(Action):  # single, double, triple, drag
         )
         self.end_time = event["end_time"]
 
-    def process_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
+    def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
         if self.action == "drag":
-            return self.process_drag_video_segment(
-                start_time, end_time, cap, out, video_attrs, window_attrs
-            )
+            return self._make_drag_annotator(start_time, end_time, start_frame, video_attrs, window_attrs)
         else:
-            return self.process_click_video_segment(
-                start_time, end_time, cap, out, video_attrs, window_attrs
-            )
+            return self._make_click_annotator(start_time, end_time, start_frame, video_attrs, window_attrs)
 
-    def process_click_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
-        fps, width, height, total_frames = (
-            video_attrs["fps"],
-            video_attrs["width"],
-            video_attrs["height"],
-            video_attrs["total_frames"],
-        )
-        height_ratio, width_ratio = (
-            height / window_attrs["height"],
-            width / window_attrs["width"],
-        )
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    def _make_click_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
+        height = video_attrs["height"]
+        width = video_attrs["width"]
+        height_ratio = height / window_attrs["height"]
+        width_ratio = width / window_attrs["width"]
 
-        x, y = int(self.coordinate["x"] * height_ratio), int(
-            self.coordinate["y"] * width_ratio
-        )
+        x = int(self.coordinate["x"] * height_ratio)
+        y = int(self.coordinate["y"] * width_ratio)
 
-        for _ in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
+        def annotate(img, frame_number):
+            cv2.circle(img, (x, y), 15, (0, 0, 255), 2)
+            return img
 
-            cv2.circle(frame, (x, y), 15, (0, 0, 255), 2)
-            out.write(frame)
+        return annotate
 
-        cap.release()
-        out.release()
-
-    def process_drag_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
+    def _make_drag_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
         video_start_time = video_attrs["video_start_time"]
-        fps, width, height, total_frames = (
-            video_attrs["fps"],
-            video_attrs["width"],
-            video_attrs["height"],
-            video_attrs["total_frames"],
-        )
-        height_ratio, width_ratio = (
-            height / window_attrs["height"],
-            width / window_attrs["width"],
-        )
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        fps = video_attrs["fps"]
+        height = video_attrs["height"]
+        width = video_attrs["width"]
+        height_ratio = height / window_attrs["height"]
+        width_ratio = width / window_attrs["width"]
 
         trace_color = (0, 0, 255)
         trace_thickness = 2
-
         arrow_color = (0, 0, 255)
         arrow_size = 20
 
@@ -669,69 +633,51 @@ class Click(Action):  # single, double, triple, drag
         else:
             time_trace = self.drag_time_trace
             trace = self.drag_trace
-            
+
         for time_point in time_trace:
             if (
                 start_time + video_start_time
                 <= time_point
                 <= end_time + video_start_time
             ):
-                x, y = trace[
-                    time_trace.index(time_point)
-                ]
-                x, y = int(x * width_ratio), int(y * height_ratio)
-                drawn_points.append((x, y))
-        
+                xi, yi = trace[time_trace.index(time_point)]
+                xi, yi = int(xi * width_ratio), int(yi * height_ratio)
+                drawn_points.append((xi, yi))
+
+        tip_point = left_wing = right_wing = None
         mid_index = len(drawn_points) // 2
         if mid_index > 0:
             start_point = drawn_points[mid_index - 1]
-            end_point = drawn_points[mid_index:mid_index+3][-1]
-            
-            # Calculate direction for arrowhead
+            end_point = drawn_points[mid_index:mid_index + 3][-1]
             direction = np.array(end_point) - np.array(start_point)
             norm = np.linalg.norm(direction)
-            
             if norm != 0:
                 direction = direction / norm * arrow_size
             else:
-                direction = np.array([arrow_size, 0])  # Default direction
-
-            perpendicular = np.array([-direction[1], direction[0]])  # Perpendicular to the direction
-
-            # Arrow tip points
+                direction = np.array([arrow_size, 0])
+            perpendicular = np.array([-direction[1], direction[0]])
             tip_point = tuple(map(int, np.array(start_point)))
-            
-            # Calculate wing positions relative to the direction
             left_wing = tuple(map(int, np.array(tip_point) + perpendicular / 2 - direction / 2))
             right_wing = tuple(map(int, np.array(tip_point) - perpendicular / 2 - direction / 2))
 
-        
-        for frame_number in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if len(drawn_points) > 1:
+        def annotate(img, frame_number):
+            if len(drawn_points) > 1 and tip_point is not None:
                 for i in range(1, len(drawn_points)):
                     cv2.line(
-                        frame,
+                        img,
                         drawn_points[i - 1],
                         drawn_points[i],
                         trace_color,
                         trace_thickness,
                     )
-
-                # Draw filled arrowhead (triangle)
                 cv2.fillPoly(
-                    frame,
+                    img,
                     [np.array([tip_point, left_wing, right_wing], dtype=np.int32)],
-                    arrow_color
+                    arrow_color,
                 )
+            return img
 
-            out.write(frame)
-
-        cap.release()
-        out.release()
+        return annotate
 
 
 class Press(Action):  # type, press, long press
@@ -853,26 +799,15 @@ class Press(Action):  # type, press, long press
 
         
         
-    def process_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
-        fps, width, height, total_frames = (
-            video_attrs["fps"],
-            video_attrs["width"],
-            video_attrs["height"],
-            video_attrs["total_frames"],
-        )
-
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
+        width = video_attrs["width"]
+        height = video_attrs["height"]
 
         font_scale = 1
         font_thickness = 2
         font = cv2.FONT_HERSHEY_SIMPLEX
-        text_color = (0, 0, 255)  # 红色
+        text_color = (0, 0, 255)
 
-        # remove emoji
         display_text = ""
         if self.description:
             display_text = (
@@ -881,19 +816,12 @@ class Press(Action):  # type, press, long press
                 else self.description
             )
 
-        for frame_number in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            text_size = cv2.getTextSize(display_text, font, font_scale, font_thickness)[
-                0
-            ]
+        def annotate(img, frame_number):
+            text_size = cv2.getTextSize(display_text, font, font_scale, font_thickness)[0]
             text_x = (width - text_size[0]) // 2
             text_y = height - 60
-
             cv2.putText(
-                frame,
+                img,
                 display_text,
                 (text_x, text_y),
                 font,
@@ -901,10 +829,9 @@ class Press(Action):  # type, press, long press
                 text_color,
                 font_thickness,
             )
-            out.write(frame)
+            return img
 
-        cap.release()
-        out.release()
+        return annotate
 
     def set_exception_end_event(self):
         self.complete = True
@@ -992,69 +919,50 @@ class Scroll(Action):
             self.description += "{}×{}  ".format(
                 direction, direction_count[direction])
 
-    def process_video_segment(
-        self, start_time, end_time, cap, out, video_attrs, window_attrs
-    ):
+    def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
         video_start_time = video_attrs["video_start_time"]
-        fps, width, height, total_frames = (
-            video_attrs["fps"],
-            video_attrs["width"],
-            video_attrs["height"],
-            video_attrs["total_frames"],
-        )
-        height_ratio, width_ratio = (
-            height / window_attrs["height"],
-            width / window_attrs["width"],
-        )
-        start_frame = max(0, int(start_time * fps))
-        end_frame = min(total_frames, int(end_time * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        fps = video_attrs["fps"]
+        width = video_attrs["width"]
+        height = video_attrs["height"]
+        height_ratio = height / window_attrs["height"]
+        width_ratio = width / window_attrs["width"]
 
+        min_display_time = 0.2
         scroll_index = 0
         last_scroll_time = None
-        min_display_time = 0.2
+        x = y = dx = dy = 0
 
-        for frame_number in range(start_frame, end_frame):
-            ret, frame = cap.read()
-            if not ret:
-                break
-
+        def annotate(img, frame_number):
+            nonlocal scroll_index, last_scroll_time, x, y, dx, dy
             current_time = start_time + (frame_number - start_frame) / fps
 
-            # new scroll
             if (
                 scroll_index < len(self.time_trace)
                 and self.time_trace[scroll_index] <= current_time + video_start_time
             ):
                 last_scroll_time = current_time
                 trace = self.trace[scroll_index]
-                x, y = int(
-                    trace["x"] * width_ratio), int(trace["y"] * height_ratio)
+                x, y = int(trace["x"] * width_ratio), int(trace["y"] * height_ratio)
                 dx, dy = trace["dx"], trace["dy"]
                 scroll_index += 1
 
-            # if one scroll is showing
             if last_scroll_time is not None:
-                # check if continue showing
                 if (
                     current_time - last_scroll_time < min_display_time
                     or scroll_index == len(self.time_trace)
                 ):
-                    # Draw arrow
                     arrow_length = 60
                     end_x = max(0, min(width - 1, x - int(dx * arrow_length)))
                     end_y = max(0, min(height - 1, y - int(dy * arrow_length)))
                     cv2.arrowedLine(
-                        frame, (x, y), (end_x, end_y), (0, 0, 255), 2, tipLength=0.3
+                        img, (x, y), (end_x, end_y), (0, 0, 255), 2, tipLength=0.3
                     )
-
-                    # Add direction text
                     direction_text = "Scroll " + self._get_direction_text(
                         np.sign(dx), np.sign(dy)
                     )
                     text_x = x + 20 if x < width / 2 else x - 20
                     cv2.putText(
-                        frame,
+                        img,
                         direction_text,
                         (int(text_x), y),
                         cv2.FONT_HERSHEY_SIMPLEX,
@@ -1063,9 +971,8 @@ class Scroll(Action):
                         2,
                     )
                 else:
-                    last_scroll_time = None  # stop current scroll
+                    last_scroll_time = None
 
-            out.write(frame)
+            return img
 
-        cap.release()
-        out.release()
+        return annotate
