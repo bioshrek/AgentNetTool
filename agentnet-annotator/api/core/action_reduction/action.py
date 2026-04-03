@@ -7,6 +7,10 @@ from typing import List, Dict, Optional
 
 from copy import deepcopy
 
+# When True, Type clips are produced via stream-copy (no decode/re-encode).
+# The key-name overlay is skipped, but generation is orders of magnitude faster.
+SKIP_TYPE_OVERLAY = True
+
 if __name__ == "__main__":
     import sys
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -412,6 +416,73 @@ class Type(Action):
 
     def _get_encoder_options(self) -> dict:
         return {"preset": "ultrafast", "crf": "28"}
+
+    def to_video(self, recording_path, video_attrs, window_attrs):
+        """Override: use stream-copy when SKIP_TYPE_OVERLAY is enabled."""
+        if SKIP_TYPE_OVERLAY:
+            self._to_video_stream_copy(recording_path, video_attrs)
+        else:
+            super().to_video(recording_path, video_attrs, window_attrs)
+
+    def _to_video_stream_copy(self, recording_path, video_attrs):
+        """Remux the relevant segment without decode/re-encode (no overlay drawn).
+
+        Uses ffmpeg -c copy so that PTS/DTS rewriting and keyframe alignment are
+        handled natively. The output clip starts at PTS 0 and is independently
+        seekable.
+        """
+        import shutil
+        import subprocess
+
+        video_start_time = video_attrs["video_start_time"]
+        start_time = self._get_video_start_time() - video_start_time
+        end_time = self._get_video_end_time() - video_start_time
+        start_time, end_time = self.process_start_end_time(start_time, end_time)
+
+        if end_time <= start_time:
+            logger.warning(
+                f"action.py _to_video_stream_copy: Invalid time range for action {self.id}. Skipping."
+            )
+            return
+
+        video_path = video_attrs.get("video_path")
+        if video_path is None:
+            video_name = self._get_video_name(recording_path)
+            video_path = os.path.join(recording_path, video_name)
+
+        os.makedirs(os.path.join(recording_path, "video_clips"), exist_ok=True)
+        video_clip_name = f"{self.id}_{self.action}"
+        output_path = os.path.join(
+            recording_path, "video_clips", f"{video_clip_name}.mp4"
+        )
+
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin is None:
+            logger.warning(
+                "action.py _to_video_stream_copy: ffmpeg not found on PATH, "
+                "falling back to decode/encode path."
+            )
+            super().to_video(recording_path, video_attrs, {})
+            return
+
+        duration = end_time - start_time
+        cmd = [
+            ffmpeg_bin,
+            "-y",                        # overwrite output
+            "-ss", f"{start_time:.6f}",  # input seek (fast, before -i)
+            "-t", f"{duration:.6f}",     # duration to copy
+            "-i", video_path,
+            "-c", "copy",                # stream copy — no decode/encode
+            "-avoid_negative_ts", "make_zero",  # rewrite PTS to start at 0
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            logger.error(
+                f"action.py _to_video_stream_copy: ffmpeg failed for action {self.id}:\n"
+                + result.stderr.decode(errors="replace")
+            )
+            raise RuntimeError(f"ffmpeg stream copy failed for action {self.id}")
 
     def _make_annotator(self, start_time, end_time, start_frame, video_attrs, window_attrs):
         video_start_time = video_attrs["video_start_time"]

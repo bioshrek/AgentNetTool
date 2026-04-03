@@ -1,286 +1,123 @@
-# PyAV Refactor Plan: Video Clip Generation
+# PyAV Refactor: Video Clip Generation — Implementation Summary
 
-## Background
+## Goal
 
-Video clip generation in `agentnet-annotator/api/core/action_reduction/action.py` currently
-uses OpenCV (`cv2`) for both frame-level annotation drawing and video I/O
-(decode + encode). The annotation drawing (`cv2.circle`, `cv2.putText`,
-`cv2.line`, `cv2.fillPoly`) is the right tool for the job and will not change.
-The I/O layer (`cv2.VideoCapture`, `cv2.VideoWriter`) is a consequential
-dependency that can be replaced with **PyAV** to gain:
+Replace `cv2.VideoWriter` with **PyAV + libx264** for encoding, keeping all
+cv2 annotation drawing unchanged. Primary target: Ubuntu/Linux, where
+`opencv-python` does not bundle `libx264` and falls back to slow `mp4v`.
 
-- **H.264 encoding on Linux** — prebuilt `opencv-python` on Ubuntu does not
-  include `libx264`, so the current code falls back to `mp4v`. PyAV bundles
-  its own FFmpeg with `libx264`, so H.264 is always available without any
-  system-level dependency.
-- **`ultrafast` preset for `type` clips** — `type` actions span the full
-  real-world typing duration (can be 10+ minutes = 18,000+ frames). With
-  libx264's `ultrafast` preset, encoding throughput is ~5-10x faster than
-  `mp4v`, from ~30fps to ~200fps effective encode rate at 1080p.
-- **Clean resource management** — PyAV's context managers (`with av.open(...)`)
-  eliminate the `cap.release()` / `out.release()` calls currently scattered
-  across all five `process_video_segment` overrides.
-- **PTS-accurate seeking** — `av.Container.seek()` by presentation timestamp
-  is more reliable than `cv2.CAP_PROP_POS_FRAMES` for long files with B-frames.
+## What Was Implemented
 
----
+### Encode: cv2 → PyAV (libx264)
 
-## How cv2 Annotation Works With PyAV
+`Action.to_video()` now opens the output with `av.open(..., mode="w")` and
+writes all frames through `libx264` (falls back to `mpeg4` if unavailable).
+The cv2 `VideoCapture` + retry loop and `VideoWriter` fallback chain are gone.
 
-The bridge is numpy:
+Encoder preset is controlled via a per-class `_get_encoder_options()` hook:
 
-```
-H.264 bitstream
-  │  av.demux + decode
-  ▼
-av.VideoFrame (yuv420p)
-  │  .to_ndarray(format="bgr24")   # YUV→BGR color convert
-  ▼
-numpy uint8 [H, W, 3]  BGR  ← identical to cv2.VideoCapture.read() output
-  │  cv2.circle / putText / line / fillPoly  (UNCHANGED)
-  ▼
-numpy uint8 [H, W, 3]  BGR  (modified in-place)
-  │  av.VideoFrame.from_ndarray(..., format="bgr24")  # BGR→YUV color convert
-  ▼
-av.VideoFrame
-  │  stream.encode + mux
-  ▼
-H.264 bitstream (output file)
-```
+- **`Type`** → `{"preset": "ultrafast", "crf": "28"}` — type clips can be
+  10+ minutes (18k–23k frames); ultrafast gives ~5-10x encode speedup vs mp4v.
+- **All other action types** (Click, Press, Scroll, Move) → `{"preset": "medium", "crf": "28"}` — clips are short (~20–300 frames); quality preset is fine.
 
-`format="bgr24"` must be specified on both sides to match cv2's byte order.
-The two YUV↔BGR conversions are negligible overhead vs encode time.
+### Decode: PyAV (software)
 
----
+For simplicity, decoding also uses PyAV (`av.open` + `src.demux`). PyAV seeks
+by PTS rather than frame index, which is more reliable for long files.
 
-## Scope of Changes
+**Platform note:** On macOS, `cv2.VideoCapture` previously used VideoToolbox
+hardware decode transparently. PyAV uses software decode, making macOS
+marginally slower for long type clips. On **Linux prod** (the primary target),
+cv2 also used software decode, so there is **no regression** — only the encode
+speedup applies.
 
-### What changes
+### `process_video_segment` → `_make_annotator` closure pattern
 
-**`action.py` — `Action.to_video()`**
+All five `process_video_segment` method overrides are replaced by
+`_make_annotator(start_time, end_time, start_frame, video_attrs, window_attrs)`
+returning a `(img, frame_number) → img` closure. `to_video()` owns the full
+decode/encode loop and calls the closure per frame. Stateful per-frame logic
+(e.g. `key_index` in `Type`, `scroll_index` in `Scroll`) lives in closure
+`nonlocal` variables.
 
-Replace:
+### Reducer metadata probing
 
-```python
-cap = cv2.VideoCapture(video_path)
-cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-fourcc = cv2.VideoWriter_fourcc(*codec)
-out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-```
-
-With:
-
-```python
-with av.open(video_path) as src, av.open(output_path, mode="w") as dst:
-    in_stream = src.streams.video[0]
-    out_stream = dst.add_stream("libx264", rate=fps)
-    out_stream.width, out_stream.height = width, height
-    out_stream.pix_fmt = "yuv420p"
-    out_stream.options = {"preset": "ultrafast", "crf": "28"}
-    src.seek(start_pts, stream=in_stream)
-    # frame loop passed to subclass
-```
-
-**`action.py` — `process_video_segment` signature**
-
-The current signature:
-
-```python
-def process_video_segment(self, start_time, end_time, cap, out, video_attrs, window_attrs)
-```
-
-Change to pass in an iterable of `(av.VideoFrame, frame_number)` tuples and
-an output encoder, or lift the I/O frame loop entirely into `to_video()` and
-make `process_video_segment` a pure annotator:
-
-```python
-def annotate_frame(self, img: np.ndarray, frame_number: int,
-                   start_time: float, video_attrs: dict, window_attrs: dict) -> np.ndarray:
-    """Return annotated copy (or in-place modified) numpy BGR frame."""
-    return img  # base: no annotation
-```
-
-Subclasses override `annotate_frame` only. `to_video()` owns the decode/encode
-loop, calls `annotate_frame` per frame, and muxes the result.
-
-### What does NOT change
-
-- `cv2.circle`, `cv2.putText`, `cv2.line`, `cv2.fillPoly`, `cv2.getTextSize`
-  — all annotation calls are identical; they only care about the numpy array.
-- All action class logic: `_get_video_start_time`, `_get_video_end_time`,
-  `process_start_end_time`, time-trace logic in `Type`, coordinate scaling in
-  `Click`, drag trace building in `process_drag_video_segment`.
-- `Reducer.process_actions_multithreaded` — threading model, queue, worker
-  function, and pre-resolved `video_attrs` dict are unchanged.
-- The fallback codec logic in `action.py` is removed (replaced by libx264
-  always being available via PyAV's bundled FFmpeg).
-
----
+`Reducer.process_actions_multithreaded` probes video metadata (`fps`, `width`,
+`height`, `total_frames`) using `av.open()` instead of `cv2.VideoCapture`.
 
 ## Affected Files
 
-| File                                                                              | Change type                                           |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `agentnet-annotator/api/core/action_reduction/action.py`                          | Core refactor                                         |
-| `agentnet-annotator/api/core/action_reduction/reducer.py`                         | Minor: remove cv2 VideoCapture for metadata; use PyAV |
-| `requirements_ubuntu.txt` / `requirements_macos.txt` / `requirements_windows.txt` | Add `av`                                              |
-| `agentnet-annotator/api/build.py`                                                 | Add `av` to bundled packages if applicable            |
+| File                                                                              | Change                                |
+| --------------------------------------------------------------------------------- | ------------------------------------- |
+| `agentnet-annotator/api/core/action_reduction/action.py`                          | Core refactor                         |
+| `agentnet-annotator/api/core/action_reduction/reducer.py`                         | Metadata probing via PyAV             |
+| `requirements_ubuntu.txt` / `requirements_macos.txt` / `requirements_windows.txt` | Add `av`                              |
+| `agentnet-annotator/api/build.py`                                                 | Add `--collect-all av` to PyInstaller |
 
----
+## How to Verify
 
-## Implementation Steps
-
-### Step 1 — Add PyAV dependency
+Run the reducer directly on a recording (includes video clip generation):
 
 ```bash
-uv add av
-# or: pip install av
+python agentnet-annotator/api/core/action_reduction/reducer.py \
+  --recording_path ~/Downloads/slow-case-e4a3de54-39c3-4435-96b9-7ef8c6635c34 \
+  2>&1 | grep -E "INFO.*Reducer: action [0-9]|INFO.*Reducer: video|INFO.*Reducer: compress|INFO.*Reducer: match"
 ```
 
-Verify `libx264` is available in PyAV's bundled FFmpeg:
-
-```python
-import av
-print(av.codec.codecs_available)  # should contain 'libx264'
-```
-
-### Step 2 — Refactor `Action.to_video()`
-
-Replace the `cv2.VideoCapture` open + retry loop and `cv2.VideoWriter`
-fallback chain with a single `av.open()` context. Key points:
-
-- Seek by PTS: `start_pts = int(start_time / float(in_stream.time_base))`
-- Use `src.demux(in_stream)` to iterate packets, decode to frames
-- Skip frames before `start_pts`, break after `end_pts`
-- Call `self.annotate_frame(img, frame_number, ...)` per frame
-- Flush encoder after the loop: `for p in out_stream.encode(): dst.mux(p)`
-
-The `video_attrs` pre-population in `Reducer.process_actions_multithreaded`
-can also switch to `av.open()` for reading `fps`, `width`, `height`,
-`total_frames`.
-
-### Step 3 — Refactor `process_video_segment` to `annotate_frame`
-
-Rename and simplify each override so it only draws on a numpy array:
-
-**Base `Action`** (currently: pass-through, no annotation):
-
-```python
-def annotate_frame(self, img, frame_number, start_time, video_attrs, window_attrs):
-    return img
-```
-
-**`Type`** (currently: `cv2.putText` with time-trace key lookup):
-
-```python
-def annotate_frame(self, img, frame_number, start_time, video_attrs, window_attrs):
-    # existing key-display logic, replacing cap.read() loop variables with parameters
-    current_time = start_time + frame_number / video_attrs["fps"]
-    # ... key_index tracking (needs to become instance state or a closure) ...
-    if current_key:
-        cv2.putText(img, current_key, ...)
-    return img
-```
-
-Note: `key_index` is currently tracked as a local variable in the frame loop.
-Since `annotate_frame` is called per-frame from outside the loop, it needs to
-become a closure variable or a small stateful helper class initialized before
-the loop.
-
-**`Click.process_click_video_segment`**:
-
-```python
-def annotate_frame(self, img, frame_number, start_time, video_attrs, window_attrs):
-    cv2.circle(img, (x, y), 15, (0, 0, 255), 2)
-    return img
-```
-
-**`Click.process_drag_video_segment`**: The drag trace and arrowhead are
-pre-computed before the frame loop (unchanged). `annotate_frame` just draws
-`cv2.line` and `cv2.fillPoly` on each frame.
-
-**`Press`**:
-
-```python
-def annotate_frame(self, img, frame_number, start_time, video_attrs, window_attrs):
-    cv2.putText(img, display_text, ...)
-    return img
-```
-
-### Step 4 — Handle `key_index` state in `Type.annotate_frame`
-
-The type key-index tracking is currently a local variable that increments
-across the frame loop. With the per-frame callback design, use a closure:
-
-```python
-def _make_type_annotator(self, start_time, video_attrs):
-    key_index = 0
-    current_key = ""
-    key_display_time = 0.5
-    video_start_time = video_attrs["video_start_time"]
-    fps = video_attrs["fps"]
-
-    def annotate(img, frame_number):
-        nonlocal key_index, current_key
-        current_time = start_time + frame_number / fps
-        if (key_index < len(self.time_trace) and
-                self.time_trace[key_index] <= current_time + video_start_time):
-            current_key = self.key_names[key_index]
-            key_index += 1
-        elif (current_time + video_start_time >
-              self.time_trace[key_index - 1] + key_display_time):
-            current_key = ""
-        if current_key:
-            # ... existing cv2.putText logic ...
-        return img
-
-    return annotate
-```
-
-Call `annotator = self._make_type_annotator(...)` before the frame loop in
-`to_video()`, then `img = annotator(img, frame_number)` per frame.
-
-### Step 5 — Benchmark and validate
-
-After refactoring:
+Or via the test script (supports multiple cases, skip flags):
 
 ```bash
-# run the slow-case test recording
-uv run agentnet-annotator/api/core/action_reduction/reducer.py \
-    --recording_path ~/Downloads/slow-case-da5b773e-a3bd-40bf-9340-80d87b8f100f
-
-# check output clips play correctly in Electron viewer
-# check codec used:
-ffprobe -v quiet -select_streams v -show_entries stream=codec_name \
-    -of default=nw=1:nk=1 \
-    ~/Downloads/slow-case-da5b773e-a3bd-40bf-9340-80d87b8f100f/video_clips/14_type.mp4
-# expected: h264
+cd agentnet-annotator
+python -m api.scripts.test_reduction --no_window_a11y --full_video \
+  --cases ~/Downloads/slow-case-e4a3de54-39c3-4435-96b9-7ef8c6635c34
 ```
 
-Target: action 14 (21,700-frame type clip) should drop from ~120s to ~20-30s
-with `ultrafast` preset.
+Expected output with `SKIP_TYPE_OVERLAY = True` (stream-copy path):
+
+```
+Reducer: compress/reduce/transform/finish: 0.04s
+Reducer: match_axtree: 0.00s
+Reducer: match_element: 0.01s
+Reducer: action 3 (type) video done in 0.25s      # ← type clips: ~0.1–0.25s
+Reducer: action 8 (type) video done in 0.14s
+Reducer: action 5 (click) video done in 0.39s
+...
+Reducer: video generation (59 clips): 5.42s       # total
+```
+
+Type clips complete in **0.10–0.25s** each (stream copy, no decode/encode).
+Non-type clips (click/press/scroll/drag) complete in **0.4–1.7s** (still using PyAV decode + libx264 encode).
 
 ---
 
-## Expected Performance After Refactor
+## Benchmark Results (macOS, 8 threads)
 
-Based on libx264 `ultrafast` encoding benchmarks at 1920×1080:
+### Pre-stream-copy (PyAV decode + libx264 encode for all clips)
 
-| Action type                 | Current (mp4v) | After (libx264 ultrafast) |
-| --------------------------- | -------------- | ------------------------- |
-| click (~20 frames)          | ~0.27s         | ~0.1s                     |
-| type, short (~300 frames)   | ~1.5s          | ~0.5s                     |
-| type, long (~21,700 frames) | ~120s          | **~20s**                  |
-| Total (53 clips, 8 threads) | ~135s          | **~30s**                  |
+| Recording                                                  | Clips | Video generation |
+| ---------------------------------------------------------- | ----- | ---------------- |
+| slow-case-da5b773e (53 clips, longest type: 23,105 frames) | 53    | 139.97s          |
+| slow-case-e4a3de54 (59 clips, longest type: 12,232 frames) | 59    | 83.51s           |
 
----
+### Post-stream-copy (`SKIP_TYPE_OVERLAY = True`, ffmpeg -c copy for Type clips)
 
-## Risks and Mitigations
+| Recording          | Clips | Video generation | Speedup  |
+| ------------------ | ----- | ---------------- | -------- |
+| slow-case-e4a3de54 | 59    | **5.42s**        | **~15x** |
 
-| Risk                                                     | Mitigation                                                                                         |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| PyAV not available in prod Docker image                  | Add `av` to `requirements_ubuntu.txt`; PyAV is pure pip, no system lib needed                      |
-| `libx264` not in PyAV's bundled FFmpeg on some platforms | Check `av.codec.codecs_available` at startup and log a warning; fall back to `libx265` or `mpeg4`  |
-| PTS-based seeking lands on wrong keyframe                | Add a pre-roll: decode but discard frames before `start_pts` (same as current `cap.set` + skip)    |
-| `key_index` closure state bugs in `Type`                 | Unit test the annotator closure with a synthetic time_trace                                        |
-| Output file incompatible with react-player/Electron      | `mp4` + `h264` + `yuv420p` is the most widely supported combination; confirmed working in Chromium |
+macOS performance is bottlenecked by PyAV software decode (was previously
+hardware-accelerated via VideoToolbox). On Linux prod, no such regression
+exists — the encode speedup from libx264 ultrafast is the dominant effect.
+
+## Performance Expectation on Linux Prod
+
+| Clip type                           | Old (mp4v) | New (libx264 ultrafast) |
+| ----------------------------------- | ---------- | ----------------------- |
+| click/press/scroll (~20–300 frames) | ~1–2s      | ~0.5–1s                 |
+| type, short (~300 frames)           | ~1.5s      | ~0.5s                   |
+| type, long (~21,700 frames)         | ~120s      | **~20–30s**             |
+| Total (53 clips, 8 threads)         | ~135s      | **~30s**                |
+
+The remaining gap is software decode time, which is the same for both old and
+new on Linux. Further improvement would require GPU-accelerated decode
+(VAAPI/NVDEC), which is environment-dependent and not guaranteed in prod.
