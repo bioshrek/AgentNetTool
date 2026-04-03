@@ -64,6 +64,7 @@ import inspect
 class GUIActionType(str, Enum):
     CLICK = "click"
     DOUBLE_CLICK = "doubleClick"
+    TRIPLE_CLICK = "tripleClick"
     RIGHT_CLICK = "rightClick"
     MIDDLE_CLICK = "middleClick"
     MOVE_TO = "moveTo"
@@ -223,6 +224,12 @@ class PyAutoGUIAction(BaseModel):
             x = self.args.get('x', 0)
             y = self.args.get('y', 0)
             return f"pyautogui.doubleClick({int(x)}, {int(y)})"
+        
+        elif self.action_type == GUIActionType.TRIPLE_CLICK:
+            # pyautogui.tripleClick(x, y)
+            x = self.args.get('x', 0)
+            y = self.args.get('y', 0)
+            return f"pyautogui.tripleClick({int(x)}, {int(y)})"
         
         elif self.action_type == GUIActionType.MOVE_TO:
             # pyautogui.moveTo(x, y)

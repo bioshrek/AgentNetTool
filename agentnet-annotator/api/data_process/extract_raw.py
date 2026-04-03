@@ -237,7 +237,15 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                             for child in children
                         )
                     )
-                    
+                    has_modifier_drag_children = (
+                        action_lower in ["long_press", "modifier_drag", "modifier_click"]
+                        and any(child.get("action") == "drag" for child in children)
+                    )
+                    has_modifier_scroll_children = (
+                        action_lower in ["long_press", "modifier_scroll"]
+                        and any(child.get("action") == "scroll" for child in children)
+                    )
+
                     if (
                         "click" in action_lower
                         or "mouse_press" in action_lower
@@ -299,6 +307,37 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                                 event["description"]
                                 + f" ({complete_events[index]['coordinate']['x']}, {complete_events[index]['coordinate']['y']})"
                             )
+                    elif has_modifier_drag_children:
+                        # Handle modifier+drag combo.
+                        # For legacy recordings stored as modifier_click with drag child,
+                        # rebuild the description using the drag child's geometry.
+                        if action_lower != "modifier_drag":
+                            key_name = complete_event.get("key_name", "")
+                            drag_child = next(
+                                (c for c in children if c.get("action") == "drag"), None
+                            )
+                            if drag_child and key_name:
+                                drag_desc = drag_child.get("description", "")
+                                event["description"] = (
+                                    f"⌨️ Modifier+Drag: ${key_name}$ {drag_desc}"
+                                )
+                        # For new modifier_drag: description already set correctly by transform()
+                    elif has_modifier_scroll_children:
+                        # Handle modifier+scroll combo.
+                        # For legacy recordings stored as long_press with scroll child,
+                        # rebuild the description and extract trace from scroll children.
+                        if action_lower != "modifier_scroll":
+                            key_name = complete_event.get("key_name", "")
+                            if key_name:
+                                event["description"] = f"⌨️ Modifier+Scroll: ${key_name}$"
+                        # Collect trace from all scroll children
+                        scroll_children_data = [
+                            c for c in children if c.get("action") == "scroll"
+                        ]
+                        combined_trace = []
+                        for sc in scroll_children_data:
+                            combined_trace.extend(sc.get("trace", []))
+                        event["trace"] = combined_trace
                     elif "scroll" in action_lower:
                         event["trace"] = complete_events[index]["trace"]
 

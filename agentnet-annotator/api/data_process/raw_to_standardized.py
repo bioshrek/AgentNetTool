@@ -137,6 +137,10 @@ def get_action_type(action: str):
         return "middleClick"
     elif "modifier+click:" in action:
         return "modifierClick"
+    elif "modifier+scroll:" in action:
+        return "modifierScroll"
+    elif "modifier+drag:" in action:
+        return "modifierDrag"
     elif "type" in action:
         return "write"
     elif "press" in action:
@@ -321,13 +325,12 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
         except Exception as e:
             raise ValueError(f"Failed to parse click action '{action}' in episode:{episode_id}, step:{step_num}: {e}") from e
     elif action_type == "tripleClick":
-        # Export triple click as single left click
         coordinates = action.split("(")[1].split(")")[0]
         x, y = map(float, coordinates.split(","))
         x = max(0, min(x, img_size[0]))
         y = max(0, min(y, img_size[1]))
         actionlist = [
-            PyAutoGUIAction(action_type=GUIActionType.CLICK, target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
+            PyAutoGUIAction(action_type=GUIActionType.TRIPLE_CLICK, target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
         ]
     elif action_type == "write":
         whole = action.split("Type: ")[-1]
@@ -637,6 +640,71 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
         actionlist.append(
             PyAutoGUIAction(action_type=GUIActionType.KEY_UP, target=None, args={"key": key_name})
         )
+    elif action_type == "modifierScroll":
+        import re as _re
+        match = _re.search(r"Modifier\+Scroll:\s*\$([^$]+)\$", action)
+        if not match:
+            raise ValueError(
+                f"Cannot parse modifierScroll action '{action}' in episode:{episode_id}, step:{step_num}"
+            )
+        key_name = match.group(1).strip()
+        actionlist = [
+            PyAutoGUIAction(action_type=GUIActionType.KEY_DOWN, target=None, args={"key": key_name}),
+        ]
+        if trace is not None and len(trace) > 0:
+            x = max(0, min(trace[0]["x"], img_size[0]))
+            y = max(0, min(trace[0]["y"], img_size[1]))
+            dx, dy = 0, 0
+            for a in trace:
+                dx += a["dx"]
+                dy += a["dy"]
+            actionlist.append(
+                PyAutoGUIAction(
+                    action_type=GUIActionType.MOVE_TO,
+                    target=None,
+                    args={"x": max(0, min(x / img_size[0], 1)), "y": max(0, min(y / img_size[1], 1))},
+                )
+            )
+            if dx != 0:
+                actionlist.append(
+                    PyAutoGUIAction(action_type=GUIActionType.HSCROLL, target=None, args={"clicks": dx})
+                )
+            if dy != 0:
+                actionlist.append(
+                    PyAutoGUIAction(action_type=GUIActionType.SCROLL, target=None, args={"clicks": dy})
+                )
+        actionlist.append(
+            PyAutoGUIAction(action_type=GUIActionType.KEY_UP, target=None, args={"key": key_name})
+        )
+    elif action_type == "modifierDrag":
+        import re as _re
+        match = _re.search(
+            r"Modifier\+Drag:\s*\$([^$]+)\$\s*Drag from\s*\(([-+]?[0-9]*\.?[0-9]+),\s*([-+]?[0-9]*\.?[0-9]+)\)\s*to\s*\(([-+]?[0-9]*\.?[0-9]+),\s*([-+]?[0-9]*\.?[0-9]+)\)",
+            action,
+        )
+        if not match:
+            raise ValueError(
+                f"Cannot parse modifierDrag action '{action}' in episode:{episode_id}, step:{step_num}"
+            )
+        key_name = match.group(1).strip()
+        from_x = max(0, min(float(match.group(2)), img_size[0]))
+        from_y = max(0, min(float(match.group(3)), img_size[1]))
+        to_x = max(0, min(float(match.group(4)), img_size[0]))
+        to_y = max(0, min(float(match.group(5)), img_size[1]))
+        actionlist = [
+            PyAutoGUIAction(action_type=GUIActionType.KEY_DOWN, target=None, args={"key": key_name}),
+            PyAutoGUIAction(
+                action_type=GUIActionType.MOVE_TO,
+                target=None,
+                args={"x": from_x / img_size[0], "y": from_y / img_size[1]},
+            ),
+            PyAutoGUIAction(
+                action_type=GUIActionType.DRAG_TO,
+                target=None,
+                args={"x": to_x / img_size[0], "y": to_y / img_size[1], "button": "left"},
+            ),
+            PyAutoGUIAction(action_type=GUIActionType.KEY_UP, target=None, args={"key": key_name}),
+        ]
     elif action_type == "dragTo":
         from_coor, target_coor = action.split("Drag from ")[1].split(" to ")
         from_x, from_y = map(float, from_coor.split("(")[1].split(")")[0].split(","))

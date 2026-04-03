@@ -780,13 +780,23 @@ class Press(Action):  # type, press, long press
                 if child.transformed == False:
                     child.transform()
 
-        # Modifier + click combo: export as a dedicated action carrying click details.
+        # Modifier + click/drag/scroll combo detection.
         visible_children = [child for child in self.children if child.vis]
         if visible_children and all(isinstance(child, Click) for child in visible_children):
+            drag_children = [child for child in visible_children if child.action == "drag"]
+            # Modifier + drag combo: all visible children are drags
+            if drag_children and len(drag_children) == len(visible_children):
+                drag_child = drag_children[0]
+                self.action = "modifier_drag"
+                self.description = (
+                    f"\u2328\ufe0f Modifier+Drag: {wrap_func_key(self.key_name)} {drag_child.description}"
+                )
+                return
+            # Modifier + click combo: only non-drag click children
             click_children = [
                 child
                 for child in visible_children
-                if child.pressed and child.coordinate is not None
+                if child.pressed and child.coordinate is not None and child.action != "drag"
             ]
             if len(click_children) == len(visible_children):
                 click_strs = [
@@ -795,10 +805,16 @@ class Press(Action):  # type, press, long press
                 ]
                 self.action = "modifier_click"
                 self.description = (
-                    f"⌨️ Modifier+Click: {wrap_func_key(self.key_name)} "
+                    f"\u2328\ufe0f Modifier+Click: {wrap_func_key(self.key_name)} "
                     + "; ".join(click_strs)
                 )
                 return
+
+        # Modifier + scroll combo
+        if visible_children and all(isinstance(child, Scroll) for child in visible_children):
+            self.action = "modifier_scroll"
+            self.description = f"\u2328\ufe0f Modifier+Scroll: {wrap_func_key(self.key_name)}"
+            return
 
         if len(self.children) == 1:
             if self.children[0].action == "type":
