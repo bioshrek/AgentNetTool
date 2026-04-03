@@ -325,13 +325,12 @@ def build_actions(episode_id, step_num, action, img_size, trace=None):
         except Exception as e:
             raise ValueError(f"Failed to parse click action '{action}' in episode:{episode_id}, step:{step_num}: {e}") from e
     elif action_type == "tripleClick":
-        # Export triple click as single left click
         coordinates = action.split("(")[1].split(")")[0]
         x, y = map(float, coordinates.split(","))
         x = max(0, min(x, img_size[0]))
         y = max(0, min(y, img_size[1]))
         actionlist = [
-            PyAutoGUIAction(action_type=GUIActionType.CLICK, target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
+            PyAutoGUIAction(action_type=GUIActionType.TRIPLE_CLICK, target=None, args={"x": x / img_size[0], "y": y / img_size[1]}),
         ]
     elif action_type == "write":
         whole = action.split("Type: ")[-1]
