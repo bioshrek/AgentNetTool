@@ -396,10 +396,14 @@ class RecordingService:
     def regenerate_clip(
         self, recording_name: str, event_index: int, verifying: bool = False
     ) -> Tuple[str, Dict]:
-        """Regenerate the video clip for a single event using ffmpeg stream copy."""
+        """Regenerate the video clip for a single event with full visual overlays.
+
+        Reconstructs the Action object from reduced_events_complete.jsonl and calls
+        action.to_video() so that click circles, drag arrows, and scroll arrows are
+        drawn exactly as in the original reduction pipeline.
+        """
         import json as _json
-        import shutil
-        import subprocess
+        from core.action_reduction.action import reconstruct_action
 
         recording_path = self._get_recording_path(recording_name, verifying)
         videos_folder_path = self._get_videos_folder_path(recording_name, verifying)
@@ -414,9 +418,15 @@ class RecordingService:
         try:
             with open(metadata_path) as f:
                 metadata = _json.load(f)
+
             video_start_time = metadata.get("video_start_timestamp")
             if video_start_time is None:
                 return FAILED, {"error": "video_start_timestamp not found in metadata"}
+
+            screen_width = metadata.get("screen_width")
+            screen_height = metadata.get("screen_height")
+            if screen_width is None or screen_height is None:
+                return FAILED, {"error": "screen_width/screen_height not found in metadata"}
 
             complete_events_path = os.path.join(recording_path, "reduced_events_complete.jsonl")
             if not os.path.exists(complete_events_path):
@@ -428,63 +438,33 @@ class RecordingService:
 
             event_data = complete_events[event_index]
 
-            # Compute clip timing — mirrors Action._get_video_start_time/end_time
-            start_time = event_data["start_time"]
-            end_time = event_data.get("end_time") or (start_time + 0.2)
-            pre_move = event_data.get("pre_move")
-            start_buffer = 0.5
-            end_buffer = 0.2
-
-            if pre_move and pre_move.get("start_time"):
-                clip_start = max(pre_move["start_time"], start_time - start_buffer) - video_start_time
-            else:
-                clip_start = (start_time - start_buffer) - video_start_time
-
-            clip_end = end_time + end_buffer - video_start_time
-
-            # Guard minimum duration — mirrors Action.process_start_end_time
-            if clip_end - clip_start < 0.5:
-                clip_start -= 0.3
-                clip_end += 0.1
-
-            clip_start = max(0.0, clip_start)
-
-            if clip_end <= clip_start:
-                return FAILED, {"error": "Invalid clip time range"}
-
             video_file = find_mp4(recording_path)
             if not video_file:
                 return FAILED, {"error": "Source video file not found"}
 
             video_path = os.path.join(recording_path, video_file)
+            video_attrs = {
+                "video_start_time": video_start_time,
+                "video_path": video_path,
+            }
+            window_attrs = {
+                "width": screen_width,
+                "height": screen_height,
+            }
+
+            os.makedirs(videos_folder_path, exist_ok=True)
+
+            action = reconstruct_action(event_data)
+            # to_video writes into recording_path/video_clips/{id}_{action}.mp4
+            action.to_video(recording_path, video_attrs, window_attrs)
+
             event_id = event_data["id"]
             event_action = event_data["action"]
             clip_name = f"{event_id}_{event_action}.mp4"
-
-            os.makedirs(videos_folder_path, exist_ok=True)
             output_path = os.path.join(videos_folder_path, clip_name)
 
-            ffmpeg_bin = shutil.which("ffmpeg")
-            if ffmpeg_bin is None:
-                return FAILED, {"error": "ffmpeg not found on PATH"}
-
-            duration = clip_end - clip_start
-            cmd = [
-                ffmpeg_bin,
-                "-y",
-                "-ss", f"{clip_start:.6f}",
-                "-t", f"{duration:.6f}",
-                "-i", video_path,
-                "-c", "copy",
-                "-avoid_negative_ts", "make_zero",
-                output_path,
-            ]
-
-            result = subprocess.run(cmd, capture_output=True)
-            if result.returncode != 0:
-                error_msg = result.stderr.decode(errors="replace")
-                logger.error(f"RecordingService: regenerate_clip ffmpeg failed: {error_msg}")
-                return FAILED, {"error": f"ffmpeg failed: {error_msg}"}
+            if not os.path.exists(output_path):
+                return FAILED, {"error": "Clip file was not created by to_video"}
 
             return SUCCEED, {
                 "success": "Clip regenerated successfully",

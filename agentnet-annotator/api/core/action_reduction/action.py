@@ -1047,3 +1047,76 @@ class Scroll(Action):
             return img
 
         return annotate
+
+
+def reconstruct_action(data: dict) -> "Action":
+    """Reconstruct a fully-annotatable Action object from a complete_dump dict.
+
+    The complete_dump format preserves the post-transform state (e.g. action="drag",
+    coordinate, drag_trace, key_names …) rather than raw event fields.  We therefore
+    bypass every ``__init__`` and build objects by direct attribute assignment so that
+    ``to_video()`` and its annotators work exactly as in the original pipeline.
+    """
+    action_type = data.get("action", "")
+
+    # Map transformed action names back to the concrete class that handles them.
+    _TYPE_MAP = {
+        "click":           Click,
+        "drag":            Click,   # drag is a transformed click
+        "mouse_press":     Click,
+        "modifier_click":  Click,
+        "modifier_drag":   Click,
+        "scroll":          Scroll,
+        "modifier_scroll": Scroll,
+        "type":            Type,
+        "press":           Press,
+        "long_press":      Press,
+        "move":            Move,
+    }
+    cls = _TYPE_MAP.get(action_type, Action)
+    obj = cls.__new__(cls)
+
+    # Copy every plain attribute from the dump dict directly.
+    for k, v in data.items():
+        if k not in ("pre_move", "children"):
+            setattr(obj, k, v)
+
+    # Ensure key is a tuple (JSON deserialises it as a list).
+    if hasattr(obj, "key") and isinstance(obj.key, list):
+        obj.key = tuple(obj.key)
+
+    # Restore pre_move as a Move object.
+    if "pre_move" in data and data["pre_move"] is not None:
+        obj.pre_move = reconstruct_action(data["pre_move"])
+    else:
+        obj.pre_move = None
+
+    # Restore children recursively.
+    if "children" in data and data["children"]:
+        obj.children = [reconstruct_action(c) for c in data["children"]]
+    else:
+        obj.children = None
+
+    # Fill in any attributes that complete_dump excludes (None values) with safe defaults.
+    _defaults = {
+        "transformed": True,   # already transformed – skip re-transform
+        "vis": True,
+        "depth": 0,
+        "exception": False,
+        "show_all_move": False,
+        "description": None,
+        "target": None,
+        "axtree": None,
+        "past_frame_target": None,
+        "gpt_target": None,
+        "complete_dump_excluded_attrs": [],
+        "vis_dump_attrs": [],
+        "base_ignore_attrs": [],
+        "action_start_video_buffer_time": 0.5,
+        "action_end_video_buffer_time": 0.2,
+    }
+    for attr, default in _defaults.items():
+        if not hasattr(obj, attr):
+            setattr(obj, attr, default)
+
+    return obj
