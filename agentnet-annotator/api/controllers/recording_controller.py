@@ -109,6 +109,17 @@ class RecordingController:
         status, message = self.recording_service.recover_recording(recording_name)
         return ErrorHandler.handle_service_response((status, message))
 
+    @handle_api_errors
+    def regenerate_clip_endpoint(self, recording_name: str, event_index: str, verifying: int = 0) -> Tuple[Dict[str, Any], int]:
+        """Regenerate the video clip for a specific event."""
+        Validator.validate_recording_name(recording_name)
+        validated_index = Validator.validate_event_index(event_index)
+
+        status, data = self.recording_service.regenerate_clip(
+            recording_name, validated_index, bool(verifying)
+        )
+        return ErrorHandler.handle_service_response((status, data))
+
         try:
             result = delete_local_recording(recording_name)
             return result

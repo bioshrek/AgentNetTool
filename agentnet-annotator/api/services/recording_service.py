@@ -393,6 +393,109 @@ class RecordingService:
             logger.warning(f"RecordingService: get_video_path failed: {e}")
             return FAILED, {"error": str(e)}
 
+    def regenerate_clip(
+        self, recording_name: str, event_index: int, verifying: bool = False
+    ) -> Tuple[str, Dict]:
+        """Regenerate the video clip for a single event using ffmpeg stream copy."""
+        import json as _json
+        import shutil
+        import subprocess
+
+        recording_path = self._get_recording_path(recording_name, verifying)
+        videos_folder_path = self._get_videos_folder_path(recording_name, verifying)
+
+        if not os.path.exists(recording_path):
+            return FAILED, {"error": "Recording not found"}
+
+        metadata_path = os.path.join(recording_path, "metadata.json")
+        if not os.path.exists(metadata_path):
+            return FAILED, {"error": "metadata.json not found"}
+
+        try:
+            with open(metadata_path) as f:
+                metadata = _json.load(f)
+            video_start_time = metadata.get("video_start_timestamp")
+            if video_start_time is None:
+                return FAILED, {"error": "video_start_timestamp not found in metadata"}
+
+            complete_events_path = os.path.join(recording_path, "reduced_events_complete.jsonl")
+            if not os.path.exists(complete_events_path):
+                return FAILED, {"error": "reduced_events_complete.jsonl not found"}
+
+            complete_events = read_encrypted_jsonl(complete_events_path)
+            if event_index < 0 or event_index >= len(complete_events):
+                return FAILED, {"error": f"Event index {event_index} out of range"}
+
+            event_data = complete_events[event_index]
+
+            # Compute clip timing — mirrors Action._get_video_start_time/end_time
+            start_time = event_data["start_time"]
+            end_time = event_data.get("end_time") or (start_time + 0.2)
+            pre_move = event_data.get("pre_move")
+            start_buffer = 0.5
+            end_buffer = 0.2
+
+            if pre_move and pre_move.get("start_time"):
+                clip_start = max(pre_move["start_time"], start_time - start_buffer) - video_start_time
+            else:
+                clip_start = (start_time - start_buffer) - video_start_time
+
+            clip_end = end_time + end_buffer - video_start_time
+
+            # Guard minimum duration — mirrors Action.process_start_end_time
+            if clip_end - clip_start < 0.5:
+                clip_start -= 0.3
+                clip_end += 0.1
+
+            clip_start = max(0.0, clip_start)
+
+            if clip_end <= clip_start:
+                return FAILED, {"error": "Invalid clip time range"}
+
+            video_file = find_mp4(recording_path)
+            if not video_file:
+                return FAILED, {"error": "Source video file not found"}
+
+            video_path = os.path.join(recording_path, video_file)
+            event_id = event_data["id"]
+            event_action = event_data["action"]
+            clip_name = f"{event_id}_{event_action}.mp4"
+
+            os.makedirs(videos_folder_path, exist_ok=True)
+            output_path = os.path.join(videos_folder_path, clip_name)
+
+            ffmpeg_bin = shutil.which("ffmpeg")
+            if ffmpeg_bin is None:
+                return FAILED, {"error": "ffmpeg not found on PATH"}
+
+            duration = clip_end - clip_start
+            cmd = [
+                ffmpeg_bin,
+                "-y",
+                "-ss", f"{clip_start:.6f}",
+                "-t", f"{duration:.6f}",
+                "-i", video_path,
+                "-c", "copy",
+                "-avoid_negative_ts", "make_zero",
+                output_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True)
+            if result.returncode != 0:
+                error_msg = result.stderr.decode(errors="replace")
+                logger.error(f"RecordingService: regenerate_clip ffmpeg failed: {error_msg}")
+                return FAILED, {"error": f"ffmpeg failed: {error_msg}"}
+
+            return SUCCEED, {
+                "success": "Clip regenerated successfully",
+                "path": output_path,
+                "clip_name": clip_name,
+            }
+
+        except Exception as e:
+            logger.exception(f"RecordingService: regenerate_clip failed: {e}")
+            return FAILED, {"error": str(e)}
+
     def toggle_window_a11y(self, flag: bool) -> None:
         """Toggle window accessibility generation."""
         self.generate_window_a11y = flag
