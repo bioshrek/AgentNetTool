@@ -259,6 +259,7 @@ const Page = () => {
   const [index, setIndex] = React.useState(0);
   const [scrollDelta, setScrollDelta] = useState<number>(0);
   const [videoClipSrcDict, setVideoClipSrcDict] = useState<VideoDict>({});
+  const [videoClipMissingDict, setVideoClipMissingDict] = useState<{[key: number]: boolean}>({});
   const [videoClipSrc, setVideoClipSrc] = useState("");
   const [fullVideoSrc, setFullVideoSrc] = useState("");
   const [openSnackbar, setOpenSnackbar] = useState(false);
@@ -333,8 +334,10 @@ const Page = () => {
   useEffect(() => {
     if (videoClipSrcDict[activeStep]) {
       setVideoClipSrc(videoClipSrcDict[activeStep]);
+    } else if (videoClipMissingDict[activeStep]) {
+      setVideoClipSrc("");
     }
-  }, [videoClipSrcDict, activeStep]);
+  }, [videoClipSrcDict, videoClipMissingDict, activeStep]);
 
   useEffect(() => {
     console.log(recordingData);
@@ -364,13 +367,8 @@ const Page = () => {
           },
         );
         if (!response.ok) {
-          //throw new Error("Network response was not ok");
-          showError(
-            "Error fetching video, or reduction hasn't been completed yet",
-          );
-          setTimeout(() => {
-            navigate("/");
-          }, 2000);
+          setVideoClipMissingDict((prev) => ({ ...prev, [index]: true }));
+          return;
         }
         const resjson = await response.json();
         const path = resjson.path;
@@ -404,6 +402,7 @@ const Page = () => {
     };
     if (recordingName != "") {
       setVideoClipSrcDict({});
+      setVideoClipMissingDict({});
       // TODO: fetch based on needs
       for (let i = 0; i < eventsList.length; i++) {
         fetchVideoClip(i);
@@ -1702,7 +1701,25 @@ const Page = () => {
                         />
                       </AspectRatio>
                     ) : (
-                      <p>No Video Support</p>
+                      videoClipMissingDict[activeStep] ? (
+                        <div
+                          style={{
+                            background: "#1a1a1a",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            width: "100%",
+                            minHeight: "200px",
+                            maxHeight: "70vh",
+                          }}
+                        >
+                          <p style={{ color: "#888", textAlign: "center" }}>
+                            {`video clip ${eventsList[activeStep]?.id}_${eventsList[activeStep]?.action}.mp4 is missing`}
+                          </p>
+                        </div>
+                      ) : (
+                        <p>No Video Support</p>
+                      )
                     )}{" "}
                   </TabPanel>
                   <TabPanel value={1}>
