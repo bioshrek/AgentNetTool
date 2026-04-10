@@ -393,6 +393,89 @@ class RecordingService:
             logger.warning(f"RecordingService: get_video_path failed: {e}")
             return FAILED, {"error": str(e)}
 
+    def regenerate_clip(
+        self, recording_name: str, event_index: int, verifying: bool = False
+    ) -> Tuple[str, Dict]:
+        """Regenerate the video clip for a single event with full visual overlays.
+
+        Reconstructs the Action object from reduced_events_complete.jsonl and calls
+        action.to_video() so that click circles, drag arrows, and scroll arrows are
+        drawn exactly as in the original reduction pipeline.
+        """
+        import json as _json
+        from core.action_reduction.action import reconstruct_action
+
+        recording_path = self._get_recording_path(recording_name, verifying)
+        videos_folder_path = self._get_videos_folder_path(recording_name, verifying)
+
+        if not os.path.exists(recording_path):
+            return FAILED, {"error": "Recording not found"}
+
+        metadata_path = os.path.join(recording_path, "metadata.json")
+        if not os.path.exists(metadata_path):
+            return FAILED, {"error": "metadata.json not found"}
+
+        try:
+            with open(metadata_path) as f:
+                metadata = _json.load(f)
+
+            video_start_time = metadata.get("video_start_timestamp")
+            if video_start_time is None:
+                return FAILED, {"error": "video_start_timestamp not found in metadata"}
+
+            screen_width = metadata.get("screen_width")
+            screen_height = metadata.get("screen_height")
+            if screen_width is None or screen_height is None:
+                return FAILED, {"error": "screen_width/screen_height not found in metadata"}
+
+            complete_events_path = os.path.join(recording_path, "reduced_events_complete.jsonl")
+            if not os.path.exists(complete_events_path):
+                return FAILED, {"error": "reduced_events_complete.jsonl not found"}
+
+            complete_events = read_encrypted_jsonl(complete_events_path)
+            if event_index < 0 or event_index >= len(complete_events):
+                return FAILED, {"error": f"Event index {event_index} out of range"}
+
+            event_data = complete_events[event_index]
+
+            video_file = find_mp4(recording_path)
+            if not video_file:
+                return FAILED, {"error": "Source video file not found"}
+
+            video_path = os.path.join(recording_path, video_file)
+            video_attrs = {
+                "video_start_time": video_start_time,
+                "video_path": video_path,
+            }
+            window_attrs = {
+                "width": screen_width,
+                "height": screen_height,
+            }
+
+            os.makedirs(videos_folder_path, exist_ok=True)
+
+            action = reconstruct_action(event_data)
+            # to_video writes into recording_path/video_clips/{id}_{action}.mp4
+            action.to_video(recording_path, video_attrs, window_attrs)
+
+            event_id = event_data["id"]
+            event_action = event_data["action"]
+            clip_name = f"{event_id}_{event_action}.mp4"
+            output_path = os.path.join(videos_folder_path, clip_name)
+
+            if not os.path.exists(output_path):
+                return FAILED, {"error": "Clip file was not created by to_video"}
+
+            return SUCCEED, {
+                "success": "Clip regenerated successfully",
+                "path": output_path,
+                "clip_name": clip_name,
+            }
+
+        except Exception as e:
+            logger.exception(f"RecordingService: regenerate_clip failed: {e}")
+            return FAILED, {"error": str(e)}
+
     def toggle_window_a11y(self, flag: bool) -> None:
         """Toggle window accessibility generation."""
         self.generate_window_a11y = flag

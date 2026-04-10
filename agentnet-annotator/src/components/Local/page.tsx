@@ -259,6 +259,12 @@ const Page = () => {
   const [index, setIndex] = React.useState(0);
   const [scrollDelta, setScrollDelta] = useState<number>(0);
   const [videoClipSrcDict, setVideoClipSrcDict] = useState<VideoDict>({});
+  const [videoClipMissingDict, setVideoClipMissingDict] = useState<{
+    [key: number]: boolean;
+  }>({});
+  const [videoClipRegeneratingSet, setVideoClipRegeneratingSet] = useState<
+    Set<number>
+  >(new Set());
   const [videoClipSrc, setVideoClipSrc] = useState("");
   const [fullVideoSrc, setFullVideoSrc] = useState("");
   const [openSnackbar, setOpenSnackbar] = useState(false);
@@ -333,8 +339,10 @@ const Page = () => {
   useEffect(() => {
     if (videoClipSrcDict[activeStep]) {
       setVideoClipSrc(videoClipSrcDict[activeStep]);
+    } else if (videoClipMissingDict[activeStep]) {
+      setVideoClipSrc("");
     }
-  }, [videoClipSrcDict, activeStep]);
+  }, [videoClipSrcDict, videoClipMissingDict, activeStep]);
 
   useEffect(() => {
     console.log(recordingData);
@@ -364,13 +372,8 @@ const Page = () => {
           },
         );
         if (!response.ok) {
-          //throw new Error("Network response was not ok");
-          showError(
-            "Error fetching video, or reduction hasn't been completed yet",
-          );
-          setTimeout(() => {
-            navigate("/");
-          }, 2000);
+          setVideoClipMissingDict((prev) => ({ ...prev, [index]: true }));
+          return;
         }
         const resjson = await response.json();
         const path = resjson.path;
@@ -404,6 +407,7 @@ const Page = () => {
     };
     if (recordingName != "") {
       setVideoClipSrcDict({});
+      setVideoClipMissingDict({});
       // TODO: fetch based on needs
       for (let i = 0; i < eventsList.length; i++) {
         fetchVideoClip(i);
@@ -429,6 +433,35 @@ const Page = () => {
     setTimeout(() => {
       setOpenSnackbar(false);
     }, 5000);
+  };
+
+  const handleRegenerateClip = async (stepIndex: number) => {
+    setVideoClipRegeneratingSet((prev) => new Set(prev).add(stepIndex));
+    try {
+      const response = await fetch(
+        `http://localhost:5328/api/recording/${recordingName}/regenerate_clip/${stepIndex}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        showError("Failed to regenerate clip");
+        return;
+      }
+      const data = await response.json();
+      setVideoClipMissingDict((prev) => {
+        const next = { ...prev };
+        delete next[stepIndex];
+        return next;
+      });
+      setVideoClipSrcDict((prev) => ({ ...prev, [stepIndex]: data.path }));
+    } catch (error) {
+      showError("Failed to regenerate clip");
+    } finally {
+      setVideoClipRegeneratingSet((prev) => {
+        const next = new Set(prev);
+        next.delete(stepIndex);
+        return next;
+      });
+    }
   };
 
   const showInfo = (message: string) => {
@@ -1700,6 +1733,39 @@ const Page = () => {
                           width="100%"
                           height="100%"
                         />
+                      </AspectRatio>
+                    ) : videoClipMissingDict[activeStep] ? (
+                      <AspectRatio
+                        objectFit="contain"
+                        sx={{ height: "100%" }}
+                        variant="plain"
+                        maxHeight="70vh"
+                      >
+                        <div
+                          style={{
+                            background: "#1a1a1a",
+                            display: "flex",
+                            flexDirection: "column",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            gap: "12px",
+                            width: "100%",
+                            height: "100%",
+                          }}
+                        >
+                          <p style={{ color: "#888", textAlign: "center" }}>
+                            {`video clip ${eventsList[activeStep]?.id}_${eventsList[activeStep]?.action}.mp4 is missing`}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outlined"
+                            color="neutral"
+                            loading={videoClipRegeneratingSet.has(activeStep)}
+                            onClick={() => handleRegenerateClip(activeStep)}
+                          >
+                            Regenerate
+                          </Button>
+                        </div>
                       </AspectRatio>
                     ) : (
                       <p>No Video Support</p>
