@@ -1702,21 +1702,27 @@ const Page = () => {
                       </AspectRatio>
                     ) : (
                       videoClipMissingDict[activeStep] ? (
-                        <div
-                          style={{
-                            background: "#1a1a1a",
-                            display: "flex",
-                            justifyContent: "center",
-                            alignItems: "center",
-                            width: "100%",
-                            minHeight: "200px",
-                            maxHeight: "70vh",
-                          }}
+                        <AspectRatio
+                          objectFit="contain"
+                          sx={{ height: "100%" }}
+                          variant="plain"
+                          maxHeight="70vh"
                         >
-                          <p style={{ color: "#888", textAlign: "center" }}>
-                            {`video clip ${eventsList[activeStep]?.id}_${eventsList[activeStep]?.action}.mp4 is missing`}
-                          </p>
-                        </div>
+                          <div
+                            style={{
+                              background: "#1a1a1a",
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              width: "100%",
+                              height: "100%",
+                            }}
+                          >
+                            <p style={{ color: "#888", textAlign: "center" }}>
+                              {`video clip ${eventsList[activeStep]?.id}_${eventsList[activeStep]?.action}.mp4 is missing`}
+                            </p>
+                          </div>
+                        </AspectRatio>
                       ) : (
                         <p>No Video Support</p>
                       )
