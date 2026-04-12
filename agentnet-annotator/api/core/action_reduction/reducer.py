@@ -412,6 +412,11 @@ class Reducer:
                             del self.reduced_actions[
                                 start_key_idx + 1 : len(self.reduced_actions)
                             ]
+                            # Prune stale active_actions indices.
+                            self.active_actions = {
+                                k: v for k, v in self.active_actions.items()
+                                if v <= start_key_idx
+                            }
 
                         else:
                             # No matched start key
@@ -461,9 +466,12 @@ class Reducer:
 
                     # mouse press action
                     if key in self.active_actions:
-                        self.reduced_actions[
-                            self.active_actions[key]
-                        ].set_exception_end_event()
+                        act_idx = self.active_actions[key]
+                        if act_idx < len(self.reduced_actions):
+                            self.reduced_actions[act_idx].set_exception_end_event()
+                        else:
+                            # stale index – discard so we don't crash
+                            del self.active_actions[key]
 
                     self.active_actions[key] = len(self.reduced_actions)
                     self.reduced_actions.append(Click(event))
@@ -497,6 +505,13 @@ class Reducer:
                     del self.reduced_actions[
                         start_key_idx + 1 : len(self.reduced_actions)
                     ]
+                    # Prune any active_actions indices that pointed into the
+                    # just-deleted range; they are now stale and would cause
+                    # an IndexError when accessed later.
+                    self.active_actions = {
+                        k: v for k, v in self.active_actions.items()
+                        if v <= start_key_idx
+                    }
 
                     # multi-click
                     mouse_start_action = self.reduced_actions[start_key_idx]
@@ -518,6 +533,11 @@ class Reducer:
                                 del self.reduced_actions[
                                     last_click_idx + 1 : len(self.reduced_actions)
                                 ]
+                                # Prune stale active_actions indices.
+                                self.active_actions = {
+                                    k: v for k, v in self.active_actions.items()
+                                    if v <= last_click_idx
+                                }
             else:
                 logger.warning(f"unsupported event: {event}")
 
