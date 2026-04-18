@@ -246,11 +246,16 @@ def process_single_directory(basedir: str, episode_dir: str, load_image: bool) -
                         and any(child.get("action") == "scroll" for child in children)
                     )
 
+                    KEYBOARD_ONLY_ACTIONS = {"type", "press", "key", "hotkey", "key_press", "key_release"}
+                    is_keyboard_only_action = action_lower in KEYBOARD_ONLY_ACTIONS
                     if (
-                        "click" in action_lower
-                        or "mouse_press" in action_lower
-                        or "click" in desc_lower
-                        or has_modifier_click_children
+                        not is_keyboard_only_action
+                        and (
+                            "click" in action_lower
+                            or "mouse_press" in action_lower
+                            or "click" in desc_lower
+                            or has_modifier_click_children
+                        )
                     ) and "(" not in event["description"]:
                         # Verify this is actually a mouse event, not a keyboard event
                         # that happens to have "click" substring in its description
